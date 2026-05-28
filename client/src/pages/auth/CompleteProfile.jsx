@@ -14,64 +14,130 @@ const initialProfile = user => ({
   emergencyContactNumber: user?.emergencyContactNumber || '',
   dateOfBirth: user?.dateOfBirth ? String(user.dateOfBirth).slice(0, 10) : '',
   gender: genderOptions.includes(user?.gender) ? user.gender : '',
-  joiningDate: user?.joiningDate ? String(user.joiningDate).slice(0, 10) : new Date().toISOString().slice(0, 10)
+  joiningDate: user?.joiningDate
+    ? String(user.joiningDate).slice(0, 10)
+    : new Date().toISOString().slice(0, 10)
 });
 
 export default function CompleteProfile() {
-  const { user } = useSelector(s => s.auth);
+  const { user } = useSelector(state => state.auth);
+
   const [form, setForm] = useState(() => initialProfile(user));
-  const [files, setFiles] = useState({});
+  const [files, setFiles] = useState({
+    profilePhoto: null,
+    aadhaarCard: null
+  });
+
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
+
   const dispatch = useDispatch();
   const navigate = useNavigate();
 
   const missingFields = useMemo(() => {
-    const required = ['name', 'phone', 'address', 'emergencyContactNumber', 'dateOfBirth', 'gender', 'joiningDate'];
-    return required.filter(field => !String(form[field] || '').trim());
+    const requiredFields = [
+      'name',
+      'phone',
+      'address',
+      'emergencyContactNumber',
+      'dateOfBirth',
+      'gender',
+      'joiningDate'
+    ];
+
+    return requiredFields.filter(field => !String(form[field] || '').trim());
   }, [form]);
 
-  const update = (key, value) => setForm(current => ({ ...current, [key]: value }));
-  const updateFile = (key, file) => setFiles(current => ({ ...current, [key]: file || null }));
+  const update = (key, value) => {
+    setForm(current => ({
+      ...current,
+      [key]: value
+    }));
+  };
 
-  const submit = async e => {
-    e.preventDefault();
+  const updateFile = (key, file) => {
+    setFiles(current => ({
+      ...current,
+      [key]: file || null
+    }));
+  };
+
+  const goToDashboard = updatedUser => {
+    const dashboardPath = roleHome[updatedUser?.role || user?.role] || '/';
+    navigate(dashboardPath, { replace: true });
+  };
+
+  const submit = async event => {
+    event.preventDefault();
+
     setError('');
+    setSuccess('');
 
-    if (missingFields.length) {
-      setError(`Please fill: ${missingFields.map(f => f.replace(/([A-Z])/g, ' $1')).join(', ')}`);
+    if (missingFields.length > 0) {
+      setError(
+        `Please fill: ${missingFields
+          .map(field => field.replace(/([A-Z])/g, ' $1'))
+          .join(', ')}`
+      );
       return;
     }
 
     if (!user?.profilePhoto && !files.profilePhoto) {
-      setError('Please upload a profile photo.');
+      setError('Please choose a Profile Photo before saving.');
       return;
     }
 
     if (!user?.aadhaarCard && !files.aadhaarCard) {
-      setError('Please upload Aadhaar card.');
+      setError('Please choose an Aadhaar Card file before saving.');
       return;
     }
 
-    const fd = new FormData();
+    const formData = new FormData();
 
     Object.entries(form).forEach(([key, value]) => {
       if (value !== undefined && value !== null && String(value).trim() !== '') {
-        fd.append(key, value);
+        formData.append(key, value);
       }
     });
 
-    Object.entries(files).forEach(([key, file]) => {
-      if (file) fd.append(key, file);
-    });
+    if (files.profilePhoto) {
+      formData.append('profilePhoto', files.profilePhoto);
+    }
+
+    if (files.aadhaarCard) {
+      formData.append('aadhaarCard', files.aadhaarCard);
+    }
 
     try {
       setLoading(true);
-      const { data } = await api.put('/users/profile/complete', fd);
-      dispatch(setUser({ ...user, ...data.user }));
-      navigate(roleHome[data.user.role || user.role] || '/');
+
+      const { data } = await api.put('/users/profile/complete', formData);
+
+      const updatedUser = {
+        ...user,
+        ...data.user
+      };
+
+      dispatch(setUser(updatedUser));
+
+      if ((updatedUser.profileCompletionPercentage || 0) >= 100) {
+        setSuccess('Profile completed successfully. Redirecting to dashboard...');
+        setTimeout(() => goToDashboard(updatedUser), 500);
+        return;
+      }
+
+      setError(
+        `Profile saved but still incomplete. Pending fields: ${
+          updatedUser.pendingRequiredFields?.join(', ') || 'Please check required fields'
+        }`
+      );
     } catch (err) {
-      setError(err.response?.data?.message || 'Profile update failed. Please check all required fields and try again.');
+      setError(
+        err.response?.data?.message ||
+          err.response?.data?.error ||
+          'Profile update failed. Please check all fields and uploaded files.'
+      );
     } finally {
       setLoading(false);
     }
@@ -79,15 +145,22 @@ export default function CompleteProfile() {
 
   return (
     <div className="mx-auto max-w-3xl">
-      <form onSubmit={submit} className="card">
+      <form onSubmit={submit} noValidate className="card">
         <h1 className="text-2xl font-bold">Complete employee profile</h1>
+
         <p className="mt-1 text-sm text-slate-500">
           Profile completion: {user?.profileCompletionPercentage || 0}%
         </p>
 
         {error && (
-          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-700">
             {error}
+          </div>
+        )}
+
+        {success && (
+          <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-medium text-emerald-700">
+            {success}
           </div>
         )}
 
@@ -97,8 +170,8 @@ export default function CompleteProfile() {
             <input
               className="input mt-1"
               value={form.name}
-              onChange={e => update('name', e.target.value)}
-              required
+              onChange={event => update('name', event.target.value)}
+              placeholder="Enter full name"
             />
           </label>
 
@@ -107,8 +180,8 @@ export default function CompleteProfile() {
             <input
               className="input mt-1"
               value={form.phone}
-              onChange={e => update('phone', e.target.value)}
-              required
+              onChange={event => update('phone', event.target.value)}
+              placeholder="Enter contact number"
             />
           </label>
 
@@ -117,8 +190,8 @@ export default function CompleteProfile() {
             <input
               className="input mt-1"
               value={form.address}
-              onChange={e => update('address', e.target.value)}
-              required
+              onChange={event => update('address', event.target.value)}
+              placeholder="Enter address"
             />
           </label>
 
@@ -127,8 +200,8 @@ export default function CompleteProfile() {
             <input
               className="input mt-1"
               value={form.emergencyContactNumber}
-              onChange={e => update('emergencyContactNumber', e.target.value)}
-              required
+              onChange={event => update('emergencyContactNumber', event.target.value)}
+              placeholder="Enter emergency contact number"
             />
           </label>
 
@@ -138,8 +211,7 @@ export default function CompleteProfile() {
               className="input mt-1"
               type="date"
               value={form.dateOfBirth}
-              onChange={e => update('dateOfBirth', e.target.value)}
-              required
+              onChange={event => update('dateOfBirth', event.target.value)}
             />
           </label>
 
@@ -148,8 +220,7 @@ export default function CompleteProfile() {
             <select
               className="input mt-1"
               value={form.gender}
-              onChange={e => update('gender', e.target.value)}
-              required
+              onChange={event => update('gender', event.target.value)}
             >
               <option value="">Select gender</option>
               {genderOptions.map(option => (
@@ -166,8 +237,7 @@ export default function CompleteProfile() {
               className="input mt-1"
               type="date"
               value={form.joiningDate}
-              onChange={e => update('joiningDate', e.target.value)}
-              required
+              onChange={event => update('joiningDate', event.target.value)}
             />
           </label>
 
@@ -177,9 +247,14 @@ export default function CompleteProfile() {
               className="input mt-1"
               type="file"
               accept="image/jpeg,image/png,image/webp"
-              onChange={e => updateFile('profilePhoto', e.target.files?.[0])}
-              required={!user?.profilePhoto}
+              onChange={event => updateFile('profilePhoto', event.target.files?.[0])}
             />
+
+            {user?.profilePhoto ? (
+              <p className="mt-1 text-xs text-emerald-600">Existing profile photo uploaded.</p>
+            ) : (
+              <p className="mt-1 text-xs text-red-600">Required</p>
+            )}
           </label>
 
           <label className="text-sm font-medium">
@@ -188,14 +263,19 @@ export default function CompleteProfile() {
               className="input mt-1"
               type="file"
               accept="image/jpeg,image/png,image/webp,application/pdf"
-              onChange={e => updateFile('aadhaarCard', e.target.files?.[0])}
-              required={!user?.aadhaarCard}
+              onChange={event => updateFile('aadhaarCard', event.target.files?.[0])}
             />
+
+            {user?.aadhaarCard ? (
+              <p className="mt-1 text-xs text-emerald-600">Existing Aadhaar card uploaded.</p>
+            ) : (
+              <p className="mt-1 text-xs text-red-600">Required</p>
+            )}
           </label>
         </div>
 
         <button className="btn-primary mt-6 disabled:opacity-60" disabled={loading}>
-          {loading ? 'Saving...' : 'Save profile'}
+          {loading ? 'Saving profile...' : 'Save profile'}
         </button>
       </form>
     </div>
