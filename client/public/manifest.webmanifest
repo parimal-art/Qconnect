@@ -1,0 +1,9 @@
+{
+  "name": "CRM Employee Tracker",
+  "short_name": "CRM Tracker",
+  "display": "standalone",
+  "start_url": "/",
+  "background_color": "#ffffff",
+  "theme_color": "#2563eb",
+  "icons": []
+}

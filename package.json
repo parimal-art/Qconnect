@@ -1,0 +1,16 @@
+{
+  "name": "crm-employee-tracker-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Production-ready PWA CRM + Employee Activity Tracking MERN application",
+  "scripts": {
+    "dev": "concurrently \"npm run dev --prefix server\" \"npm run dev --prefix client\"",
+    "install:all": "npm install --prefix server && npm install --prefix client",
+    "seed": "npm run seed --prefix server",
+    "start": "npm run start --prefix server",
+    "build": "npm run build --prefix client"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
