@@ -10,7 +10,20 @@ const stateBucketMap = {
   [ACTIVITY_STATES.ACTIVE]: 'active',
   [ACTIVITY_STATES.ONLINE]: 'active',
   [ACTIVITY_STATES.IDLE]: 'idle',
-  [ACTIVITY_STATES.ON_BREAK]: 'break'
+  [ACTIVITY_STATES.ON_BREAK]: 'break',
+  [ACTIVITY_STATES.OFFLINE]: 'offline'
+};
+
+const number = value => Number(value || 0);
+
+const addMs = (attendance, key, value) => {
+  attendance[key] = number(attendance[key]) + number(value);
+};
+
+const toPlainAttendance = attendance => {
+  if (!attendance) return null;
+  if (typeof attendance.toObject === 'function') return attendance.toObject();
+  return attendance;
 };
 
 const buildStatusPayload = (user, state, now, attendance) => ({
@@ -20,7 +33,7 @@ const buildStatusPayload = (user, state, now, attendance) => ({
   onlineStatus: state === ACTIVITY_STATES.OFFLINE ? 'offline' : 'online',
   currentActivityState: state,
   lastSeen: now,
-  attendance
+  attendance: toPlainAttendance(attendance)
 });
 
 const broadcastStatus = (user, payload) => {
@@ -52,25 +65,25 @@ const applyDuration = (attendance, from, to, state, activitySource = 'CRM_PWA') 
 
   if (bucket === 'active') {
     if (activitySource === 'DESKTOP_TRACKER') {
-      attendance.desktopActiveTimeInsideShift += insideShiftMs;
-      attendance.desktopActiveTimeOutsideShift += outsideShiftMs;
+      addMs(attendance, 'desktopActiveTimeInsideShift', insideShiftMs);
+      addMs(attendance, 'desktopActiveTimeOutsideShift', outsideShiftMs);
     } else {
-      attendance.activeTimeInsideShift += insideShiftMs;
-      attendance.activeTimeOutsideShift += outsideShiftMs;
+      addMs(attendance, 'activeTimeInsideShift', insideShiftMs);
+      addMs(attendance, 'activeTimeOutsideShift', outsideShiftMs);
     }
   }
 
   if (bucket === 'idle') {
-    attendance.idleTimeInsideShift += insideShiftMs;
-    attendance.totalIdleTime += totalMs;
+    addMs(attendance, 'idleTimeInsideShift', insideShiftMs);
+    addMs(attendance, 'totalIdleTime', totalMs);
   }
 
   if (bucket === 'break') {
-    attendance.breakTimeInsideShift += insideShiftMs;
-    attendance.totalBreakTime += totalMs;
+    addMs(attendance, 'breakTimeInsideShift', insideShiftMs);
+    addMs(attendance, 'totalBreakTime', totalMs);
   }
 
-  attendance.totalLoggedInTime += totalMs;
+  addMs(attendance, 'totalLoggedInTime', totalMs);
 
   return { insideShiftMs, outsideShiftMs, totalMs };
 };
@@ -92,9 +105,9 @@ const applyOfflineDuration = (attendance, from, to) => {
     return { insideShiftMs: 0, outsideShiftMs: 0, totalMs: 0 };
   }
 
-  attendance.offlineTimeInsideShift += insideShiftMs;
-  attendance.offlineTimeOutsideShift += outsideShiftMs;
-  attendance.totalOfflineTime += totalMs;
+  addMs(attendance, 'offlineTimeInsideShift', insideShiftMs);
+  addMs(attendance, 'offlineTimeOutsideShift', outsideShiftMs);
+  addMs(attendance, 'totalOfflineTime', totalMs);
 
   return { insideShiftMs, outsideShiftMs, totalMs };
 };
@@ -104,7 +117,10 @@ const ensureAttendanceSession = async (user, req, now = new Date()) => {
   const { start, end } = getShiftBounds(date, user.shiftStart, user.shiftEnd);
   const totalShiftTime = Math.max(0, end.getTime() - start.getTime());
 
-  let attendance = await Attendance.findOne({ user: user._id, date });
+  let attendance = await Attendance.findOne({
+    user: user._id,
+    date
+  });
 
   if (!attendance) {
     attendance = await Attendance.create({
@@ -158,8 +174,13 @@ const processHeartbeat = async ({
 
   const previousAt = attendance.lastHeartbeatAt || attendance.loginTime || now;
 
+  const gapSeconds = Math.max(
+    0,
+    (now.getTime() - new Date(previousAt).getTime()) / 1000
+  );
+
   const cappedPreviousAt =
-    (now.getTime() - previousAt.getTime()) / 1000 > env.offlineAfterSeconds
+    gapSeconds > env.offlineAfterSeconds
       ? new Date(now.getTime() - env.heartbeatIntervalSeconds * 1000)
       : previousAt;
 
@@ -205,12 +226,14 @@ const markOffline = async (user, req, metadata = {}) => {
   const now = new Date();
   const attendance = await ensureAttendanceSession(user, req, now);
 
-  applyDuration(
-    attendance,
-    attendance.lastHeartbeatAt || attendance.loginTime || now,
-    now,
-    attendance.currentState || ACTIVITY_STATES.ACTIVE
-  );
+  if (attendance.status === 'OPEN') {
+    applyDuration(
+      attendance,
+      attendance.lastHeartbeatAt || attendance.loginTime || now,
+      now,
+      attendance.currentState || ACTIVITY_STATES.ACTIVE
+    );
+  }
 
   attendance.logoutTime = now;
   attendance.lastLogoutTime = now;
@@ -218,6 +241,7 @@ const markOffline = async (user, req, metadata = {}) => {
   attendance.status = 'CLOSED';
   attendance.currentState = ACTIVITY_STATES.OFFLINE;
   attendance.lastHeartbeatAt = now;
+  attendance.lastStateStartedAt = now;
 
   attendance.logoutHistory.push({
     at: now,
@@ -278,6 +302,7 @@ const closeStaleOpenAttendances = async () => {
     attendance.status = 'CLOSED';
     attendance.currentState = ACTIVITY_STATES.OFFLINE;
     attendance.lastHeartbeatAt = offlineAt;
+    attendance.lastStateStartedAt = offlineAt;
 
     attendance.logoutHistory.push({
       at: offlineAt,
@@ -326,7 +351,10 @@ const startBreak = async ({ user, type = 'Short break', reason = '', req }) => {
     metadata: { breakStarted: true }
   });
 
-  const activeBreak = await Break.findOne({ user: user._id, status: 'OPEN' });
+  const activeBreak = await Break.findOne({
+    user: user._id,
+    status: 'OPEN'
+  });
 
   if (activeBreak) return activeBreak;
 
@@ -340,7 +368,10 @@ const startBreak = async ({ user, type = 'Short break', reason = '', req }) => {
 };
 
 const endBreak = async ({ user, req }) => {
-  const activeBreak = await Break.findOne({ user: user._id, status: 'OPEN' });
+  const activeBreak = await Break.findOne({
+    user: user._id,
+    status: 'OPEN'
+  });
 
   if (activeBreak) {
     activeBreak.endTime = new Date();

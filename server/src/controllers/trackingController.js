@@ -1,8 +1,10 @@
 const jwt = require('jsonwebtoken');
+
 const asyncHandler = require('../utils/asyncHandler');
 const User = require('../models/User');
 const Attendance = require('../models/Attendance');
 const ApiError = require('../utils/ApiError');
+
 const { processHeartbeat, markOffline } = require('../services/trackingService');
 const { ACTIVITY_STATES } = require('../constants/roles');
 const { getAccessibleUserIds, canAccessUser } = require('../middleware/rbac');
@@ -18,7 +20,10 @@ const heartbeat = asyncHandler(async (req, res) => {
     activitySource: req.body.activitySource || 'CRM_PWA'
   });
 
-  res.json({ success: true, attendance });
+  res.json({
+    success: true,
+    attendance
+  });
 });
 
 const markIdle = asyncHandler(async (req, res) => {
@@ -26,10 +31,16 @@ const markIdle = asyncHandler(async (req, res) => {
     user: req.user,
     state: ACTIVITY_STATES.IDLE,
     req,
-    metadata: { event: 'idle' }
+    metadata: {
+      event: 'idle',
+      ...(req.body.metadata || {})
+    }
   });
 
-  res.json({ success: true, attendance });
+  res.json({
+    success: true,
+    attendance
+  });
 });
 
 const markActive = asyncHandler(async (req, res) => {
@@ -37,10 +48,16 @@ const markActive = asyncHandler(async (req, res) => {
     user: req.user,
     state: ACTIVITY_STATES.ACTIVE,
     req,
-    metadata: { event: 'active' }
+    metadata: {
+      event: 'active',
+      ...(req.body.metadata || {})
+    }
   });
 
-  res.json({ success: true, attendance });
+  res.json({
+    success: true,
+    attendance
+  });
 });
 
 const offline = asyncHandler(async (req, res) => {
@@ -49,7 +66,10 @@ const offline = asyncHandler(async (req, res) => {
     reason: req.body.reason || 'manual_offline'
   });
 
-  res.json({ success: true, attendance });
+  res.json({
+    success: true,
+    attendance
+  });
 });
 
 const offlineBeacon = asyncHandler(async (req, res) => {
@@ -75,7 +95,7 @@ const offlineBeacon = asyncHandler(async (req, res) => {
 
   await markOffline(user, req, {
     ...(req.body.metadata || {}),
-    reason: 'app_closed'
+    reason: req.body.metadata?.reason || 'app_closed'
   });
 
   return res.status(204).end();
@@ -84,11 +104,19 @@ const offlineBeacon = asyncHandler(async (req, res) => {
 const children = asyncHandler(async (req, res) => {
   const ids = await getAccessibleUserIds(req.user);
 
-  const users = await User.find({ _id: { $in: ids }, isActive: true }).select(
+  const users = await User.find({
+    _id: {
+      $in: ids
+    },
+    isActive: true
+  }).select(
     'name email role employeeId onlineStatus currentActivityState lastSeen shiftStart shiftEnd assignedHR assignedTeamLeader'
   );
 
-  res.json({ success: true, users });
+  res.json({
+    success: true,
+    users
+  });
 });
 
 const childByUser = asyncHandler(async (req, res) => {
@@ -96,56 +124,115 @@ const childByUser = asyncHandler(async (req, res) => {
     throw new ApiError(403, 'Access denied');
   }
 
-  const attendance = await Attendance.find({ user: req.params.userId })
-    .sort({ date: -1 })
+  const attendance = await Attendance.find({
+    user: req.params.userId
+  })
+    .sort({
+      date: -1
+    })
     .limit(30)
     .lean();
 
-  res.json({ success: true, attendance });
+  res.json({
+    success: true,
+    attendance
+  });
 });
 
 const summary = asyncHandler(async (req, res) => {
   const ids = await getAccessibleUserIds(req.user);
-  const today = { $gte: startOfDay(), $lte: endOfDay() };
+
+  const today = {
+    $gte: startOfDay(),
+    $lte: endOfDay()
+  };
 
   const [states, totals] = await Promise.all([
     User.aggregate([
-      { $match: { _id: { $in: ids }, isActive: true } },
-      { $group: { _id: '$currentActivityState', count: { $sum: 1 } } }
+      {
+        $match: {
+          _id: {
+            $in: ids
+          },
+          isActive: true
+        }
+      },
+      {
+        $group: {
+          _id: '$currentActivityState',
+          count: {
+            $sum: 1
+          }
+        }
+      }
     ]),
     Attendance.aggregate([
-      { $match: { user: { $in: ids }, date: today } },
+      {
+        $match: {
+          user: {
+            $in: ids
+          },
+          date: today
+        }
+      },
       {
         $group: {
           _id: null,
-          active: { $sum: '$activeTimeInsideShift' },
-          idle: { $sum: '$idleTimeInsideShift' },
-          breakTime: { $sum: '$breakTimeInsideShift' },
-          offline: { $sum: '$offlineTimeInsideShift' },
-          outOfShift: { $sum: '$activeTimeOutsideShift' },
-          offlineOutOfShift: { $sum: '$offlineTimeOutsideShift' }
+          active: {
+            $sum: '$activeTimeInsideShift'
+          },
+          idle: {
+            $sum: '$idleTimeInsideShift'
+          },
+          breakTime: {
+            $sum: '$breakTimeInsideShift'
+          },
+          offline: {
+            $sum: '$offlineTimeInsideShift'
+          },
+          outOfShift: {
+            $sum: '$activeTimeOutsideShift'
+          },
+          offlineOutOfShift: {
+            $sum: '$offlineTimeOutsideShift'
+          }
         }
       }
     ])
   ]);
 
-  res.json({ success: true, states, totals: totals[0] || {} });
+  res.json({
+    success: true,
+    states,
+    totals: totals[0] || {}
+  });
 });
 
 const workingHoursReport = asyncHandler(async (req, res) => {
   const ids = await getAccessibleUserIds(req.user);
+
   const from = req.query.from ? new Date(req.query.from) : startOfDay();
   const to = req.query.to ? new Date(req.query.to) : endOfDay();
 
   const report = await Attendance.find({
-    user: { $in: ids },
-    date: { $gte: startOfDay(from), $lte: endOfDay(to) }
+    user: {
+      $in: ids
+    },
+    date: {
+      $gte: startOfDay(from),
+      $lte: endOfDay(to)
+    }
   })
     .populate('user', 'name email employeeId role')
-    .sort({ date: -1 })
+    .sort({
+      date: -1
+    })
     .lean();
 
-  res.json({ success: true, report });
+  res.json({
+    success: true,
+    report
+  });
 });
 
 module.exports = {

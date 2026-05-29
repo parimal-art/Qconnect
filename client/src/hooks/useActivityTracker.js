@@ -1,11 +1,12 @@
 import { useEffect, useRef } from 'react';
 
 import api from '../lib/api';
-import { markPendingAppClose } from '../lib/authStorage';
+import { getToken, markPendingAppClose } from '../lib/authStorage';
 import { connectSocket } from '../lib/socket';
 
 const IDLE_AFTER_MS = 5 * 60 * 1000;
 const HEARTBEAT_MS = 30 * 1000;
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 const isCrmScreenActive = () =>
   document.visibilityState === 'visible' && document.hasFocus();
@@ -13,6 +14,7 @@ const isCrmScreenActive = () =>
 export function useActivityTracker(enabled = true) {
   const lastActivityRef = useRef(Date.now());
   const stateRef = useRef('Active');
+  const closingRef = useRef(false);
 
   useEffect(() => {
     if (!enabled) return undefined;
@@ -20,6 +22,8 @@ export function useActivityTracker(enabled = true) {
     const socket = connectSocket();
 
     const send = async (state, metadata = {}) => {
+      if (closingRef.current) return;
+
       stateRef.current = state;
 
       socket?.emit('heartbeat', {
@@ -35,7 +39,7 @@ export function useActivityTracker(enabled = true) {
           activitySource: 'CRM_PWA'
         });
       } catch {
-        // Ignore temporary network errors.
+        // ignore temporary tracking error
       }
     };
 
@@ -53,12 +57,16 @@ export function useActivityTracker(enabled = true) {
     };
 
     const markIdle = metadata => {
+      if (closingRef.current) return;
+
       if (stateRef.current !== 'Idle') {
         send('Idle', metadata);
       }
     };
 
     const checkIdleByInactivity = () => {
+      if (closingRef.current) return;
+
       if (!isCrmScreenActive()) {
         markIdle({
           event: 'screen_not_active',
@@ -82,6 +90,8 @@ export function useActivityTracker(enabled = true) {
     };
 
     const handleVisibilityChange = () => {
+      if (closingRef.current) return;
+
       if (document.visibilityState === 'hidden') {
         markIdle({
           event: 'visibility_hidden',
@@ -100,6 +110,8 @@ export function useActivityTracker(enabled = true) {
     };
 
     const handleBlur = () => {
+      if (closingRef.current) return;
+
       markIdle({
         event: 'window_blur',
         reason: 'employee_switched_tab_or_window'
@@ -107,6 +119,8 @@ export function useActivityTracker(enabled = true) {
     };
 
     const handleFocus = () => {
+      if (closingRef.current) return;
+
       lastActivityRef.current = Date.now();
 
       send('Active', {
@@ -115,14 +129,55 @@ export function useActivityTracker(enabled = true) {
       });
     };
 
-    const handlePossibleAppClose = () => {
-      // Important:
-      // Do not clear token here.
-      // Do not call logout API here.
-      // Refresh and close both trigger beforeunload/pagehide.
-      // We only mark a pending close. App.jsx decides on next load:
-      // reload = continue login, normal open after close = logout.
+    const sendOfflineBeacon = reason => {
+      if (closingRef.current) return;
+
+      closingRef.current = true;
+      stateRef.current = 'Offline';
       markPendingAppClose();
+
+      const token = getToken();
+
+      if (!token) return;
+
+      const payload = JSON.stringify({
+        token,
+        metadata: {
+          event: 'app_closed',
+          reason,
+          closedAt: new Date().toISOString()
+        }
+      });
+
+      const blob = new Blob([payload], {
+        type: 'application/json'
+      });
+
+      const sent = navigator.sendBeacon?.(
+        `${API_BASE}/tracking/offline-beacon`,
+        blob
+      );
+
+      if (!sent) {
+        fetch(`${API_BASE}/tracking/offline-beacon`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: payload,
+          credentials: 'include',
+          keepalive: true
+        }).catch(() => {});
+      }
+
+      socket?.emit('heartbeat', {
+        state: 'Offline',
+        metadata: {
+          event: 'app_closed_socket_hint',
+          reason
+        },
+        activitySource: 'CRM_PWA'
+      });
     };
 
     const activityEvents = [
@@ -141,8 +196,8 @@ export function useActivityTracker(enabled = true) {
     window.addEventListener('blur', handleBlur);
     window.addEventListener('focus', handleFocus);
 
-    window.addEventListener('pagehide', handlePossibleAppClose);
-    window.addEventListener('beforeunload', handlePossibleAppClose);
+    window.addEventListener('pagehide', () => sendOfflineBeacon('pagehide'));
+    window.addEventListener('beforeunload', () => sendOfflineBeacon('beforeunload'));
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
@@ -175,9 +230,6 @@ export function useActivityTracker(enabled = true) {
 
       window.removeEventListener('blur', handleBlur);
       window.removeEventListener('focus', handleFocus);
-
-      window.removeEventListener('pagehide', handlePossibleAppClose);
-      window.removeEventListener('beforeunload', handlePossibleAppClose);
 
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };

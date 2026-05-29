@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 
@@ -45,6 +45,7 @@ function HomeRedirect() {
 export default function App() {
   const dispatch = useDispatch();
   const { isAuthenticated } = useSelector(state => state.auth);
+  const [sessionChecked, setSessionChecked] = useState(false);
 
   useEffect(() => {
     const wasAppClosed = shouldLogoutBecauseAppWasClosed();
@@ -52,15 +53,27 @@ export default function App() {
     if (wasAppClosed) {
       clearToken();
       clearPendingAppClose();
+      setSessionChecked(true);
       return;
     }
 
     clearPendingAppClose();
 
-    if (getToken()) {
-      dispatch(loadMe());
+    const token = getToken();
+
+    if (token) {
+      dispatch(loadMe()).finally(() => {
+        setSessionChecked(true);
+      });
+      return;
     }
+
+    setSessionChecked(true);
   }, [dispatch]);
+
+  if (!sessionChecked) {
+    return null;
+  }
 
   return (
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>

@@ -1,7 +1,12 @@
 const router = require('express').Router();
+
 const tracking = require('../controllers/trackingController');
 const { authenticateUser } = require('../middleware/auth');
 
+// Important:
+// This route must be before authenticateUser.
+// Browser sendBeacon cannot send Authorization header reliably,
+// so token is sent in body and verified inside controller.
 router.post('/offline-beacon', tracking.offlineBeacon);
 
 router.use(authenticateUser);
@@ -10,6 +15,7 @@ router.post('/heartbeat', tracking.heartbeat);
 router.post('/idle', tracking.markIdle);
 router.post('/active', tracking.markActive);
 router.post('/offline', tracking.offline);
+
 router.get('/children', tracking.children);
 router.get('/children/:userId', tracking.childByUser);
 router.get('/summary', tracking.summary);

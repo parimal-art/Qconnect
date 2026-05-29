@@ -6,7 +6,98 @@ const asyncHandler = require('../utils/asyncHandler');
 const { createEmployee } = require('../services/userService');
 const { buildChildQuery, canAccessUser, getAccessibleUserIds } = require('../middleware/rbac');
 const { ROLES, ACTIVITY_STATES } = require('../constants/roles');
-const { startOfDay, endOfDay, formatDuration } = require('../utils/time');
+const { startOfDay, endOfDay, formatDuration, splitDurationByShift } = require('../utils/time');
+
+const stateBucketMap = {
+  [ACTIVITY_STATES.ACTIVE]: 'active',
+  [ACTIVITY_STATES.ONLINE]: 'active',
+  [ACTIVITY_STATES.IDLE]: 'idle',
+  [ACTIVITY_STATES.ON_BREAK]: 'break',
+  [ACTIVITY_STATES.OFFLINE]: 'offline'
+};
+
+const number = value => Number(value || 0);
+
+const calculateLiveAttendance = attendance => {
+  const now = new Date();
+
+  if (!attendance || !attendance._id) {
+    return {
+      snapshotAt: now,
+      activeTimeInsideShiftMs: 0,
+      idleTimeInsideShiftMs: 0,
+      offlineTimeInsideShiftMs: 0,
+      breakTimeInsideShiftMs: 0,
+      activeTimeOutsideShiftMs: 0,
+      offlineTimeOutsideShiftMs: 0,
+      totalBreakTimeMs: 0,
+      totalIdleTimeMs: 0,
+      totalOfflineTimeMs: 0,
+      totalShiftTimeMs: 0
+    };
+  }
+
+  const live = {
+    snapshotAt: now,
+    activeTimeInsideShiftMs: number(attendance.activeTimeInsideShift),
+    idleTimeInsideShiftMs: number(attendance.idleTimeInsideShift),
+    offlineTimeInsideShiftMs: number(attendance.offlineTimeInsideShift),
+    breakTimeInsideShiftMs: number(attendance.breakTimeInsideShift),
+    activeTimeOutsideShiftMs: number(attendance.activeTimeOutsideShift),
+    offlineTimeOutsideShiftMs: number(attendance.offlineTimeOutsideShift),
+    totalBreakTimeMs: number(attendance.totalBreakTime),
+    totalIdleTimeMs: number(attendance.totalIdleTime),
+    totalOfflineTimeMs: number(attendance.totalOfflineTime),
+    totalShiftTimeMs: number(attendance.totalShiftTime)
+  };
+
+  if (attendance.status === 'OPEN') {
+    const from = attendance.lastHeartbeatAt || attendance.lastStateStartedAt || attendance.loginTime;
+
+    if (from) {
+      const { insideShiftMs, outsideShiftMs, totalMs } = splitDurationByShift({
+        from,
+        to: now,
+        shiftStart: attendance.shiftStart,
+        shiftEnd: attendance.shiftEnd,
+        date: attendance.date
+      });
+
+      const bucket = stateBucketMap[attendance.currentState] || 'active';
+
+      if (bucket === 'active') {
+        live.activeTimeInsideShiftMs += insideShiftMs;
+        live.activeTimeOutsideShiftMs += outsideShiftMs;
+      }
+
+      if (bucket === 'idle') {
+        live.idleTimeInsideShiftMs += insideShiftMs;
+        live.totalIdleTimeMs += totalMs;
+      }
+
+      if (bucket === 'break') {
+        live.breakTimeInsideShiftMs += insideShiftMs;
+        live.totalBreakTimeMs += totalMs;
+      }
+    }
+  }
+
+  if (attendance.status === 'CLOSED' && attendance.offlineStartedAt) {
+    const { insideShiftMs, outsideShiftMs, totalMs } = splitDurationByShift({
+      from: attendance.offlineStartedAt,
+      to: now,
+      shiftStart: attendance.shiftStart,
+      shiftEnd: attendance.shiftEnd,
+      date: attendance.date
+    });
+
+    live.offlineTimeInsideShiftMs += insideShiftMs;
+    live.offlineTimeOutsideShiftMs += outsideShiftMs;
+    live.totalOfflineTimeMs += totalMs;
+  }
+
+  return live;
+};
 
 const createUser = asyncHandler(async (req, res) => {
   const user = await createEmployee({ creator: req.user, data: req.body });
@@ -57,7 +148,9 @@ const trackingForChildren = asyncHandler(async (req, res) => {
     date: today
   }).lean();
 
-  const attendanceByUser = Object.fromEntries(attendances.map(a => [String(a.user), a]));
+  const attendanceByUser = Object.fromEntries(
+    attendances.map(attendance => [String(attendance.user), attendance])
+  );
 
   const leadAgg = await Lead.aggregate([
     {
@@ -94,10 +187,11 @@ const trackingForChildren = asyncHandler(async (req, res) => {
     }
   ]);
 
-  const leadByUser = Object.fromEntries(leadAgg.map(l => [String(l._id), l]));
+  const leadByUser = Object.fromEntries(leadAgg.map(lead => [String(lead._id), lead]));
 
   const data = users.map(user => {
     const attendance = attendanceByUser[String(user._id)] || {};
+    const live = calculateLiveAttendance(attendance);
     const leads = leadByUser[String(user._id)] || { total: 0, completed: 0, followupDue: 0 };
     const pending = Math.max(0, (leads.total || 0) - (leads.completed || 0));
     const performancePercentage = leads.total ? Math.round((leads.completed / leads.total) * 100) : 0;
@@ -112,15 +206,34 @@ const trackingForChildren = asyncHandler(async (req, res) => {
       currentActivityState: user.currentActivityState,
       loginTime: attendance.loginTime,
       logoutTime: attendance.logoutTime,
+      lastHeartbeatAt: attendance.lastHeartbeatAt,
+      currentStateStartedAt: attendance.lastStateStartedAt,
+      trackerSnapshotAt: live.snapshotAt,
+      attendanceStatus: attendance.status || 'CLOSED',
+      shiftStart: user.shiftStart,
+      shiftEnd: user.shiftEnd,
       assignedWorkingHours: `${user.shiftStart} - ${user.shiftEnd}`,
-      totalShiftDuration: formatDuration(attendance.totalShiftTime || 0),
-      totalActiveTimeDuringWorkingHours: formatDuration(attendance.activeTimeInsideShift || 0),
-      totalIdleTimeDuringWorkingHours: formatDuration(attendance.idleTimeInsideShift || 0),
-      totalOfflineTimeDuringWorkingHours: formatDuration(attendance.offlineTimeInsideShift || 0),
-      totalBreakTime: formatDuration(attendance.totalBreakTime || 0),
-      totalOfflineTime: formatDuration(attendance.totalOfflineTime || 0),
-      outOfShiftActivityTime: formatDuration(attendance.activeTimeOutsideShift || 0),
-      offlineOutOfShiftTime: formatDuration(attendance.offlineTimeOutsideShift || 0),
+
+      totalShiftDuration: formatDuration(live.totalShiftTimeMs),
+
+      activeTimeInsideShiftMs: live.activeTimeInsideShiftMs,
+      idleTimeInsideShiftMs: live.idleTimeInsideShiftMs,
+      offlineTimeInsideShiftMs: live.offlineTimeInsideShiftMs,
+      breakTimeInsideShiftMs: live.breakTimeInsideShiftMs,
+      activeTimeOutsideShiftMs: live.activeTimeOutsideShiftMs,
+      offlineTimeOutsideShiftMs: live.offlineTimeOutsideShiftMs,
+      totalBreakTimeMs: live.totalBreakTimeMs,
+      totalIdleTimeMs: live.totalIdleTimeMs,
+      totalOfflineTimeMs: live.totalOfflineTimeMs,
+
+      totalActiveTimeDuringWorkingHours: formatDuration(live.activeTimeInsideShiftMs),
+      totalIdleTimeDuringWorkingHours: formatDuration(live.idleTimeInsideShiftMs),
+      totalOfflineTimeDuringWorkingHours: formatDuration(live.offlineTimeInsideShiftMs),
+      totalBreakTime: formatDuration(live.totalBreakTimeMs),
+      totalOfflineTime: formatDuration(live.totalOfflineTimeMs),
+      outOfShiftActivityTime: formatDuration(live.activeTimeOutsideShiftMs),
+      offlineOutOfShiftTime: formatDuration(live.offlineTimeOutsideShiftMs),
+
       lastSeen: user.lastSeen,
       todaysLeadCount: leads.total || 0,
       completedLeadCount: leads.completed || 0,
@@ -153,7 +266,7 @@ const updateUser = asyncHandler(async (req, res) => {
   }
 
   const protectedFields = ['password', 'role', 'employeeId', 'createdBy', 'tokenVersion'];
-  protectedFields.forEach(f => delete req.body[f]);
+  protectedFields.forEach(field => delete req.body[field]);
 
   const user = await User.findById(req.params.id);
   if (!user) throw new ApiError(404, 'User not found');

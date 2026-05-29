@@ -53,12 +53,10 @@ export const shouldLogoutBecauseAppWasClosed = () => {
 
   const navigationType = getNavigationType();
 
-  // Refresh/F5/Ctrl+R/browser refresh button should not logout.
+  // Refresh/F5/Ctrl+R/browser refresh should not logout.
   if (navigationType === 'reload') {
     return false;
   }
 
-  // If old page had marked close and new page is opened normally,
-  // treat it as previous app/tab close.
   return true;
 };
