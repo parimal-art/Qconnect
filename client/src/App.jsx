@@ -1,20 +1,31 @@
 import { useEffect } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
+
 import { loadMe } from './store/authSlice';
-import { getToken } from './lib/authStorage';
+import {
+  clearPendingAppClose,
+  clearToken,
+  getToken,
+  shouldLogoutBecauseAppWasClosed
+} from './lib/authStorage';
+
 import { ROLES, roleHome } from './lib/roles';
+
 import Layout from './components/Layout';
 import { ProtectedRoute, RoleRoute } from './components/ProtectedRoute';
+
 import Login from './pages/auth/Login';
 import ForgotPassword from './pages/auth/ForgotPassword';
 import ResetPassword from './pages/auth/ResetPassword';
 import ChangePassword from './pages/auth/ChangePassword';
 import CompleteProfile from './pages/auth/CompleteProfile';
+
 import AdminDashboard from './pages/dashboard/AdminDashboard';
 import HRDashboard from './pages/dashboard/HRDashboard';
 import TeamLeaderDashboard from './pages/dashboard/TeamLeaderDashboard';
 import SalespersonDashboard from './pages/dashboard/SalespersonDashboard';
+
 import TrackerPage from './pages/TrackerPage';
 import EmployeesPage from './pages/EmployeesPage';
 import CreateEmployeePage from './pages/CreateEmployeePage';
@@ -26,22 +37,39 @@ import BreakLeavePage from './pages/BreakLeavePage';
 import ProfilePage from './pages/ProfilePage';
 
 function HomeRedirect() {
-  const { user } = useSelector(s => s.auth);
+  const { user } = useSelector(state => state.auth);
+
   return <Navigate to={roleHome[user?.role] || '/login'} replace />;
 }
 
 export default function App() {
   const dispatch = useDispatch();
-  const { isAuthenticated } = useSelector(s => s.auth);
+  const { isAuthenticated } = useSelector(state => state.auth);
 
   useEffect(() => {
-    if (getToken()) dispatch(loadMe());
+    const wasAppClosed = shouldLogoutBecauseAppWasClosed();
+
+    if (wasAppClosed) {
+      clearToken();
+      clearPendingAppClose();
+      return;
+    }
+
+    clearPendingAppClose();
+
+    if (getToken()) {
+      dispatch(loadMe());
+    }
   }, [dispatch]);
 
   return (
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Routes>
-        <Route path="/login" element={isAuthenticated ? <HomeRedirect /> : <Login />} />
+        <Route
+          path="/login"
+          element={isAuthenticated ? <HomeRedirect /> : <Login />}
+        />
+
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/change-password" element={<ChangePassword />} />

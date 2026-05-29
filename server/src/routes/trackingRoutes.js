@@ -2,7 +2,10 @@ const router = require('express').Router();
 const tracking = require('../controllers/trackingController');
 const { authenticateUser } = require('../middleware/auth');
 
+router.post('/offline-beacon', tracking.offlineBeacon);
+
 router.use(authenticateUser);
+
 router.post('/heartbeat', tracking.heartbeat);
 router.post('/idle', tracking.markIdle);
 router.post('/active', tracking.markActive);

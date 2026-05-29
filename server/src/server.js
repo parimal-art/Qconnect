@@ -4,23 +4,34 @@ const app = require('./app');
 const connectDB = require('./config/db');
 const env = require('./config/env');
 const registerSocket = require('./socket');
+const { runTrackingSweep } = require('./services/trackingService');
 
 const start = async () => {
   await connectDB();
+
   const server = http.createServer(app);
   const io = new Server(server, {
-    cors: { origin: env.clientUrl, credentials: true },
-    pingTimeout: 30000
+    cors: {
+      origin: env.clientUrl,
+      credentials: true
+    }
   });
+
   app.set('io', io);
   registerSocket(io);
 
+  setInterval(() => {
+    runTrackingSweep().catch(error => {
+      console.error('Tracking sweep failed', error);
+    });
+  }, 60 * 1000);
+
   server.listen(env.port, () => {
-    console.log(`API listening on http://localhost:${env.port}`);
+    console.log(`Server running on port ${env.port}`);
   });
 };
 
 start().catch(error => {
-  console.error('Failed to start server', error);
+  console.error(error);
   process.exit(1);
 });
