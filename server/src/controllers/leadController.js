@@ -7,16 +7,70 @@ const { hydrateLeadNormalizers, buildDuplicateQuery } = require('../utils/leadDu
 const { notifyUser } = require('../services/notificationService');
 const { ROLES } = require('../constants/roles');
 
+const MANAGEMENT_ROLES = [ROLES.ADMIN, ROLES.HR, ROLES.TEAM_LEADER];
+
+const MANAGER_EDIT_FIELDS = [
+  'name',
+  'companyName',
+  'contactNumber',
+  'email',
+  'website',
+  'domain',
+  'address',
+  'source',
+  'additionalInfo',
+  'assignedTo'
+];
+
+const SALESPERSON_AFTER_CALL_FIELDS = [
+  'leadType',
+  'pipelineStatus',
+  'callStatus',
+  'actionRequired',
+  'remarks',
+  'followUpDate'
+];
+
+const canSalespersonModifyLead = (user, lead) =>
+  user.role === ROLES.SALESPERSON &&
+  (String(lead.assignedTo || '') === String(user._id) ||
+    String(lead.createdBy || '') === String(user._id));
+
+const pickAllowedFields = (source, allowed) => {
+  const output = {};
+
+  allowed.forEach(key => {
+    if (source[key] !== undefined) {
+      output[key] = source[key] === '' ? undefined : source[key];
+    }
+  });
+
+  return output;
+};
+
 const create = asyncHandler(async (req, res) => {
-  const lead = await createLead({ actor: req.user, data: req.body });
-  res.status(201).json({ success: true, lead });
+  if (![...MANAGEMENT_ROLES, ROLES.SALESPERSON].includes(req.user.role)) {
+    throw new ApiError(403, 'You are not allowed to create leads');
+  }
+
+  const lead = await createLead({
+    actor: req.user,
+    data: req.body
+  });
+
+  res.status(201).json({
+    success: true,
+    lead
+  });
 });
 
 const upload = asyncHandler(async (req, res) => {
-  if (!req.file) throw new ApiError(400, 'CSV or Excel file is required');
+  if (!req.file) {
+    throw new ApiError(400, 'CSV or Excel file is required');
+  }
 
-  if (![ROLES.ADMIN, ROLES.TEAM_LEADER, ROLES.HR].includes(req.user.role)) {
-    throw new ApiError(403, 'Only Admin/HR/Team Leader can upload leads');
+  if (!MANAGEMENT_ROLES.includes(req.user.role)) {
+    throw new ApiError(403, 'Only Admin, HR, and Team Leader can upload leads');
   }
 
   const rows = parseLeadUpload(req.file);
@@ -50,6 +104,9 @@ const list = asyncHandler(async (req, res) => {
   ['leadType', 'pipelineStatus', 'callStatus', 'source', 'assignedTo'].forEach(key => {
     if (req.query[key]) query[key] = req.query[key];
   });
+
+  if (req.query.completed === 'true') query.isCompleted = true;
+  if (req.query.completed === 'false') query.isCompleted = false;
 
   if (req.query.from || req.query.to) query.createdAt = {};
   if (req.query.from) query.createdAt.$gte = new Date(req.query.from);
@@ -92,7 +149,10 @@ const getById = asyncHandler(async (req, res) => {
 
   if (!lead) throw new ApiError(404, 'Lead not found');
 
-  res.json({ success: true, lead });
+  res.json({
+    success: true,
+    lead
+  });
 });
 
 const update = asyncHandler(async (req, res) => {
@@ -106,54 +166,61 @@ const update = asyncHandler(async (req, res) => {
     throw new ApiError(404, 'Lead not found');
   }
 
-  if (req.body.assignedTo) {
-    await validateAssignment({
-      actor: req.user,
-      assignedTo: req.body.assignedTo
-    });
+  let allowedFields = [];
+  let timelineAction = '';
+
+  if (MANAGEMENT_ROLES.includes(req.user.role)) {
+    allowedFields = MANAGER_EDIT_FIELDS;
+    timelineAction = 'Lead management updated';
+
+    if (req.body.assignedTo) {
+      await validateAssignment({
+        actor: req.user,
+        assignedTo: req.body.assignedTo
+      });
+    }
   }
 
-  const allowedFields = [
-    'name',
-    'companyName',
-    'contactNumber',
-    'email',
-    'website',
-    'domain',
-    'address',
-    'source',
-    'additionalInfo',
-    'leadType',
-    'pipelineStatus',
-    'callStatus',
-    'actionRequired',
-    'remarks',
-    'followUpDate',
-    'assignedTo'
-  ];
-
-  allowedFields.forEach(key => {
-    if (req.body[key] !== undefined) {
-      lead[key] = req.body[key] === '' ? undefined : req.body[key];
+  if (req.user.role === ROLES.SALESPERSON) {
+    if (!canSalespersonModifyLead(req.user, lead)) {
+      throw new ApiError(403, 'Salesperson can update only own assigned/self-generated leads');
     }
-  });
+
+    allowedFields = SALESPERSON_AFTER_CALL_FIELDS;
+    timelineAction = 'After-call data updated';
+
+    if (req.body.assignedTo) {
+      delete req.body.assignedTo;
+    }
+  }
+
+  if (!allowedFields.length) {
+    throw new ApiError(403, 'You are not allowed to update this lead');
+  }
+
+  const updateData = pickAllowedFields(req.body, allowedFields);
+
+  Object.assign(lead, updateData);
 
   hydrateLeadNormalizers(lead);
 
   lead.activityTimeline.push({
-    action: 'Lead updated',
-    description: 'Lead details updated',
+    action: timelineAction,
+    description:
+      req.user.role === ROLES.SALESPERSON
+        ? 'Salesperson updated call details, remarks, follow-up, or pipeline'
+        : 'Lead basic details or assignment updated',
     by: req.user._id,
-    metadata: req.body
+    metadata: updateData
   });
 
   await lead.save();
 
-  if (req.body.assignedTo) {
+  if (updateData.assignedTo) {
     await notifyUser({
-      user: req.body.assignedTo,
-      title: 'Lead assigned/updated',
-      message: `${lead.name} was assigned or updated`,
+      user: updateData.assignedTo,
+      title: 'New lead assigned',
+      message: `${lead.name} was assigned to you`,
       type: 'lead_assigned',
       metadata: { leadId: lead._id }
     });
@@ -164,7 +231,10 @@ const update = asyncHandler(async (req, res) => {
     lead
   });
 
-  res.json({ success: true, lead });
+  res.json({
+    success: true,
+    lead
+  });
 });
 
 const updateStatus = asyncHandler(async (req, res) => {
@@ -178,26 +248,19 @@ const updateStatus = asyncHandler(async (req, res) => {
     throw new ApiError(404, 'Lead not found');
   }
 
-  const allowed = [
-    'leadType',
-    'pipelineStatus',
-    'callStatus',
-    'actionRequired',
-    'followUpDate',
-    'remarks'
-  ];
+  if (!canSalespersonModifyLead(req.user, lead)) {
+    throw new ApiError(403, 'Only assigned Salesperson can update after-call lead data');
+  }
 
-  allowed.forEach(key => {
-    if (req.body[key] !== undefined) {
-      lead[key] = req.body[key] === '' ? undefined : req.body[key];
-    }
-  });
+  const updateData = pickAllowedFields(req.body, SALESPERSON_AFTER_CALL_FIELDS);
+
+  Object.assign(lead, updateData);
 
   lead.activityTimeline.push({
-    action: 'Status changed',
-    description: 'Lead status/call details changed',
+    action: 'After-call status changed',
+    description: 'Salesperson updated call status, lead type, action, follow-up, remarks, or pipeline',
     by: req.user._id,
-    metadata: req.body
+    metadata: updateData
   });
 
   await lead.save();
@@ -207,7 +270,10 @@ const updateStatus = asyncHandler(async (req, res) => {
     lead
   });
 
-  res.json({ success: true, lead });
+  res.json({
+    success: true,
+    lead
+  });
 });
 
 const complete = asyncHandler(async (req, res) => {
@@ -221,26 +287,25 @@ const complete = asyncHandler(async (req, res) => {
     throw new ApiError(404, 'Lead not found');
   }
 
+  if (!canSalespersonModifyLead(req.user, lead)) {
+    throw new ApiError(403, 'Only assigned Salesperson can complete a lead');
+  }
+
   lead.isCompleted = true;
   lead.completedAt = new Date();
 
-  if (req.body.pipelineStatus) {
-    lead.pipelineStatus = req.body.pipelineStatus;
-  }
+  const updateData = pickAllowedFields(req.body, SALESPERSON_AFTER_CALL_FIELDS);
+  Object.assign(lead, updateData);
 
-  if (req.body.callStatus !== undefined) {
-    lead.callStatus = req.body.callStatus || undefined;
-  }
-
-  if (req.body.remarks !== undefined) {
-    lead.remarks = req.body.remarks;
+  if (!lead.pipelineStatus) {
+    lead.pipelineStatus = 'Won';
   }
 
   lead.activityTimeline.push({
     action: 'Lead completed',
     description: `Lead marked completed as ${lead.pipelineStatus}`,
     by: req.user._id,
-    metadata: req.body
+    metadata: updateData
   });
 
   await lead.save();
@@ -250,7 +315,10 @@ const complete = asyncHandler(async (req, res) => {
     lead
   });
 
-  res.json({ success: true, lead });
+  res.json({
+    success: true,
+    lead
+  });
 });
 
 const remove = asyncHandler(async (req, res) => {
@@ -258,6 +326,14 @@ const remove = asyncHandler(async (req, res) => {
 
   if (!lead || lead.isDeleted) {
     throw new ApiError(404, 'Lead not found');
+  }
+
+  if (req.user.role !== ROLES.ADMIN && req.user.role !== ROLES.TEAM_LEADER) {
+    throw new ApiError(403, 'Only Admin or Team Leader can delete leads');
+  }
+
+  if (!(await canAccessLead(req.user, req.params.id))) {
+    throw new ApiError(403, 'Access denied');
   }
 
   lead.isDeleted = true;
@@ -296,7 +372,10 @@ const search = asyncHandler(async (req, res) => {
     .populate('assignedBy', 'name employeeId email')
     .populate('createdBy', 'name employeeId email role');
 
-  res.json({ success: true, leads });
+  res.json({
+    success: true,
+    leads
+  });
 });
 
 const checkDuplicate = asyncHandler(async (req, res) => {

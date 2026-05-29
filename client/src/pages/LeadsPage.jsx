@@ -61,7 +61,6 @@ const toDateTimeLocal = value => {
   if (!value) return '';
 
   const date = new Date(value);
-
   if (Number.isNaN(date.getTime())) return '';
 
   const offset = date.getTimezoneOffset();
@@ -70,35 +69,15 @@ const toDateTimeLocal = value => {
   return local.toISOString().slice(0, 16);
 };
 
-const normalizeLeadForForm = lead => ({
-  name: lead?.name || '',
-  companyName: lead?.companyName || '',
-  contactNumber: lead?.contactNumber || '',
-  email: lead?.email || '',
-  website: lead?.website || '',
-  domain: lead?.domain || '',
-  address: lead?.address || '',
-  source: lead?.source || 'Manual',
-  additionalInfo: lead?.additionalInfo || '',
-  leadType: lead?.leadType || 'Cold Lead',
-  pipelineStatus: lead?.pipelineStatus || 'New Lead',
-  callStatus: lead?.callStatus || '',
-  actionRequired: lead?.actionRequired || 'Follow-up',
-  remarks: lead?.remarks || '',
-  followUpDate: toDateTimeLocal(lead?.followUpDate),
-  assignedTo: lead?.assignedTo?._id || lead?.assignedTo || ''
-});
-
 export default function LeadsPage() {
   const { user } = useSelector(state => state.auth);
 
   const [leads, setLeads] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [form, setForm] = useState(leadInitial);
-  const [editLead, setEditLead] = useState(null);
-  const [editForm, setEditForm] = useState(leadInitial);
   const [query, setQuery] = useState('');
   const [view, setView] = useState('table');
+  const [completedFilter, setCompletedFilter] = useState('all');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -106,11 +85,18 @@ export default function LeadsPage() {
   const [error, setError] = useState('');
 
   const isSalesperson = user?.role === ROLES.SALESPERSON;
+  const isManagerRole = [ROLES.ADMIN, ROLES.HR, ROLES.TEAM_LEADER].includes(user?.role);
 
   const salespersons = useMemo(
     () => employees.filter(employee => employee.role === ROLES.SALESPERSON),
     [employees]
   );
+
+  const visibleLeads = useMemo(() => {
+    if (completedFilter === 'completed') return leads.filter(lead => lead.isCompleted);
+    if (completedFilter === 'pending') return leads.filter(lead => !lead.isCompleted);
+    return leads;
+  }, [leads, completedFilter]);
 
   const load = async () => {
     setLoading(true);
@@ -144,20 +130,11 @@ export default function LeadsPage() {
     }));
   };
 
-  const updateEditField = (key, value) => {
-    setEditForm(current => ({
-      ...current,
-      [key]: value
-    }));
-  };
-
-  const buildPayload = values => {
+  const buildCreatePayload = values => {
     const payload = { ...values };
 
     Object.keys(payload).forEach(key => {
-      if (payload[key] === '') {
-        delete payload[key];
-      }
+      if (payload[key] === '') delete payload[key];
     });
 
     if (payload.followUpDate) {
@@ -170,6 +147,15 @@ export default function LeadsPage() {
 
     return payload;
   };
+
+  const buildAfterCallPayload = lead => ({
+    leadType: lead.leadType,
+    pipelineStatus: lead.pipelineStatus,
+    callStatus: lead.callStatus,
+    actionRequired: lead.actionRequired,
+    remarks: lead.remarks,
+    followUpDate: lead.followUpDate ? new Date(lead.followUpDate) : undefined
+  });
 
   const create = async event => {
     event.preventDefault();
@@ -186,14 +172,17 @@ export default function LeadsPage() {
       return;
     }
 
+    if (isManagerRole && !form.assignedTo) {
+      setError('Please assign this lead to a salesperson.');
+      return;
+    }
+
     try {
       setSaving(true);
 
-      const payload = buildPayload(form);
+      await api.post('/leads', buildCreatePayload(form));
 
-      await api.post('/leads', payload);
-
-      setMessage('Lead created successfully.');
+      setMessage(isSalesperson ? 'Self-generated lead created.' : 'Lead generated and assigned.');
       setForm(leadInitial);
       await load();
     } catch (err) {
@@ -231,59 +220,35 @@ export default function LeadsPage() {
     }
   };
 
-  const openEdit = lead => {
-    setEditLead(lead);
-    setEditForm(normalizeLeadForForm(lead));
-    setError('');
-    setMessage('');
+  const updateInlineLead = (leadId, key, value) => {
+    setLeads(current =>
+      current.map(lead =>
+        lead._id === leadId
+          ? {
+              ...lead,
+              [key]: value
+            }
+          : lead
+      )
+    );
   };
 
-  const closeEdit = () => {
-    setEditLead(null);
-    setEditForm(leadInitial);
-  };
-
-  const saveEdit = async event => {
-    event.preventDefault();
-
-    if (!editLead?._id) return;
-
+  const saveAfterCallUpdate = async lead => {
     setError('');
     setMessage('');
 
-    try {
-      setSaving(true);
-
-      await api.put(`/leads/${editLead._id}`, buildPayload(editForm));
-
-      setMessage('Lead updated successfully.');
-      closeEdit();
-      await load();
-    } catch (err) {
-      setError(err.response?.data?.message || 'Lead update failed.');
-    } finally {
-      setSaving(false);
+    if (!isSalesperson) {
+      setError('Only salesperson can update after-call lead data.');
+      return;
     }
-  };
-
-  const saveCallUpdate = async lead => {
-    setError('');
-    setMessage('');
 
     try {
-      await api.put(`/leads/${lead._id}/status`, {
-        leadType: lead.leadType,
-        pipelineStatus: lead.pipelineStatus,
-        callStatus: lead.callStatus,
-        actionRequired: lead.actionRequired,
-        remarks: lead.remarks,
-        followUpDate: lead.followUpDate
-      });
+      await api.put(`/leads/${lead._id}/status`, buildAfterCallPayload(lead));
 
-      setMessage('Call details updated successfully.');
+      setMessage('After-call lead data updated.');
       await load();
     } catch (err) {
-      setError(err.response?.data?.message || 'Call update failed.');
+      setError(err.response?.data?.message || 'After-call update failed.');
     }
   };
 
@@ -291,11 +256,15 @@ export default function LeadsPage() {
     setError('');
     setMessage('');
 
+    if (!isSalesperson) {
+      setError('Only salesperson can complete a lead.');
+      return;
+    }
+
     try {
       await api.put(`/leads/${lead._id}/complete`, {
-        pipelineStatus: lead.pipelineStatus === 'Lost' ? 'Lost' : 'Won',
-        callStatus: lead.callStatus || undefined,
-        remarks: lead.remarks || undefined
+        ...buildAfterCallPayload(lead),
+        pipelineStatus: lead.pipelineStatus === 'Lost' ? 'Lost' : 'Won'
       });
 
       setMessage('Lead marked as completed.');
@@ -323,20 +292,76 @@ export default function LeadsPage() {
     }
   };
 
-  const updateInlineLead = (leadId, key, value) => {
-    setLeads(current =>
-      current.map(lead =>
-        lead._id === leadId
-          ? {
-              ...lead,
-              [key]: value
-            }
-          : lead
+  const managerColumns = [
+    {
+      key: 'name',
+      header: 'Lead',
+      render: lead => (
+        <div>
+          <p className="font-semibold">{lead.name}</p>
+          <p className="text-xs text-slate-500">{lead.companyName || 'No company'}</p>
+          {lead.isSelfGenerated && (
+            <p className="mt-1 text-xs font-semibold text-emerald-600">
+              Self-generated / Reward eligible
+            </p>
+          )}
+        </div>
       )
-    );
-  };
+    },
+    {
+      key: 'contact',
+      header: 'Contact',
+      render: lead => (
+        <div>
+          <p>{lead.contactNumber || '—'}</p>
+          <p className="text-xs text-slate-500">{lead.email || '—'}</p>
+          <p className="text-xs text-slate-500">{lead.website || '—'}</p>
+        </div>
+      )
+    },
+    {
+      key: 'leadType',
+      header: 'Lead Type',
+      render: lead => <StatusBadge value={lead.leadType || 'Cold Lead'} />
+    },
+    {
+      key: 'pipelineStatus',
+      header: 'Pipeline',
+      render: lead => <StatusBadge value={lead.pipelineStatus || 'New Lead'} />
+    },
+    {
+      key: 'callStatus',
+      header: 'Call Status',
+      render: lead => lead.callStatus || '—'
+    },
+    {
+      key: 'actionRequired',
+      header: 'Action',
+      render: lead => lead.actionRequired || '—'
+    },
+    {
+      key: 'remarks',
+      header: 'Remarks',
+      render: lead => lead.remarks || '—'
+    },
+    {
+      key: 'followUpDate',
+      header: 'Follow-up',
+      render: lead => (lead.followUpDate ? new Date(lead.followUpDate).toLocaleString() : '—')
+    },
+    {
+      key: 'assignedTo',
+      header: 'Assigned To',
+      render: lead => lead.assignedTo?.name || 'Unassigned'
+    },
+    {
+      key: 'isCompleted',
+      header: 'Completed',
+      render: lead => <StatusBadge value={lead.isCompleted ? 'Approved' : 'Pending'} />
+    }
+  ];
 
-  const columns = [
+  const salespersonColumns = [
     {
       key: 'name',
       header: 'Lead',
@@ -371,6 +396,7 @@ export default function LeadsPage() {
           className="input min-w-32"
           value={lead.leadType || 'Cold Lead'}
           onChange={event => updateInlineLead(lead._id, 'leadType', event.target.value)}
+          disabled={lead.isCompleted}
         >
           {leadTypes.map(type => (
             <option key={type} value={type}>
@@ -388,6 +414,7 @@ export default function LeadsPage() {
           className="input min-w-40"
           value={lead.pipelineStatus || 'New Lead'}
           onChange={event => updateInlineLead(lead._id, 'pipelineStatus', event.target.value)}
+          disabled={lead.isCompleted}
         >
           {pipelineStatuses.map(status => (
             <option key={status} value={status}>
@@ -405,6 +432,7 @@ export default function LeadsPage() {
           className="input min-w-40"
           value={lead.callStatus || ''}
           onChange={event => updateInlineLead(lead._id, 'callStatus', event.target.value)}
+          disabled={lead.isCompleted}
         >
           {callStatuses.map(status => (
             <option key={status || 'empty'} value={status}>
@@ -422,6 +450,7 @@ export default function LeadsPage() {
           className="input min-w-40"
           value={lead.actionRequired || 'Follow-up'}
           onChange={event => updateInlineLead(lead._id, 'actionRequired', event.target.value)}
+          disabled={lead.isCompleted}
         >
           {actionOptions.map(action => (
             <option key={action} value={action}>
@@ -440,7 +469,8 @@ export default function LeadsPage() {
           rows="2"
           value={lead.remarks || ''}
           onChange={event => updateInlineLead(lead._id, 'remarks', event.target.value)}
-          placeholder="Call remarks..."
+          placeholder="After-call remarks..."
+          disabled={lead.isCompleted}
         />
       )
     },
@@ -453,49 +483,43 @@ export default function LeadsPage() {
           type="datetime-local"
           value={toDateTimeLocal(lead.followUpDate)}
           onChange={event => updateInlineLead(lead._id, 'followUpDate', event.target.value)}
+          disabled={lead.isCompleted}
         />
       )
     },
     {
-      key: 'assignedTo',
-      header: 'Assigned To',
-      render: lead => lead.assignedTo?.name || 'Self / Unassigned'
-    },
-    {
       key: 'isCompleted',
       header: 'Completed',
-      render: lead => (
-        <StatusBadge value={lead.isCompleted ? 'Approved' : 'Pending'} />
-      )
+      render: lead => <StatusBadge value={lead.isCompleted ? 'Approved' : 'Pending'} />
     },
     {
       key: 'actions',
       header: 'Actions',
       render: lead => (
         <div className="flex min-w-44 flex-col gap-2">
-          <button
-            type="button"
-            onClick={() => saveCallUpdate(lead)}
-            className="text-left text-sm font-semibold text-blue-600"
-          >
-            Save Call Update
-          </button>
+          {!lead.isCompleted && (
+            <>
+              <button
+                type="button"
+                onClick={() => saveAfterCallUpdate(lead)}
+                className="text-left text-sm font-semibold text-blue-600"
+              >
+                Save After-call Update
+              </button>
 
-          <button
-            type="button"
-            onClick={() => openEdit(lead)}
-            className="text-left text-sm font-semibold text-slate-700"
-          >
-            Edit Full Lead
-          </button>
+              <button
+                type="button"
+                onClick={() => complete(lead)}
+                className="text-left text-sm font-semibold text-emerald-600"
+              >
+                Complete Lead
+              </button>
+            </>
+          )}
 
-          <button
-            type="button"
-            onClick={() => complete(lead)}
-            className="text-left text-sm font-semibold text-emerald-600"
-          >
-            Complete
-          </button>
+          {lead.isCompleted && (
+            <span className="text-sm font-semibold text-emerald-600">Completed</span>
+          )}
         </div>
       )
     }
@@ -507,28 +531,34 @@ export default function LeadsPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Lead management</h1>
+          <h1 className="text-2xl font-bold">
+            {isSalesperson ? 'My Leads' : 'Lead Management'}
+          </h1>
           <p className="text-slate-500">
-            Create leads, assign leads, update call status, update remarks, and track pipeline.
+            {isSalesperson
+              ? 'Update only after-call data for your assigned or self-generated leads.'
+              : 'Generate, assign, upload, and view pending/completed leads. After-call updates are salesperson-only.'}
           </p>
         </div>
 
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => setView('table')}
-            className="btn-secondary"
-          >
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => setView('table')} className="btn-secondary">
             Table
           </button>
 
-          <button
-            type="button"
-            onClick={() => setView('kanban')}
-            className="btn-secondary"
-          >
+          <button type="button" onClick={() => setView('kanban')} className="btn-secondary">
             Kanban
           </button>
+
+          <select
+            className="input w-40"
+            value={completedFilter}
+            onChange={event => setCompletedFilter(event.target.value)}
+          >
+            <option value="all">All leads</option>
+            <option value="pending">Pending leads</option>
+            <option value="completed">Completed leads</option>
+          </select>
         </div>
       </div>
 
@@ -546,7 +576,7 @@ export default function LeadsPage() {
 
       <form onSubmit={create} className="card">
         <h2 className="font-semibold">
-          {isSalesperson ? 'Add self-generated lead' : 'Create / assign lead'}
+          {isSalesperson ? 'Add self-generated lead' : 'Generate and assign lead'}
         </h2>
 
         <div className="mt-4 grid gap-3 md:grid-cols-4">
@@ -611,49 +641,20 @@ export default function LeadsPage() {
             ))}
           </select>
 
-          <select
-            className="input"
-            value={form.pipelineStatus}
-            onChange={event => updateCreateField('pipelineStatus', event.target.value)}
-          >
-            {pipelineStatuses.map(status => (
-              <option key={status} value={status}>
-                {status}
-              </option>
-            ))}
-          </select>
-
-          <select
-            className="input"
-            value={form.callStatus}
-            onChange={event => updateCreateField('callStatus', event.target.value)}
-          >
-            {callStatuses.map(status => (
-              <option key={status || 'empty'} value={status}>
-                {status || 'Select call status'}
-              </option>
-            ))}
-          </select>
-
-          <select
-            className="input"
-            value={form.actionRequired}
-            onChange={event => updateCreateField('actionRequired', event.target.value)}
-          >
-            {actionOptions.map(action => (
-              <option key={action} value={action}>
-                {action}
-              </option>
-            ))}
-          </select>
+          <input
+            className="input md:col-span-2"
+            placeholder="Address"
+            value={form.address}
+            onChange={event => updateCreateField('address', event.target.value)}
+          />
 
           {!isSalesperson && (
             <select
-              className="input"
+              className="input md:col-span-2"
               value={form.assignedTo}
               onChange={event => updateCreateField('assignedTo', event.target.value)}
             >
-              <option value="">Assign salesperson</option>
+              <option value="">Assign salesperson *</option>
               {salespersons.map(salesperson => (
                 <option key={salesperson._id} value={salesperson._id}>
                   {salesperson.name || salesperson.email}
@@ -662,40 +663,18 @@ export default function LeadsPage() {
             </select>
           )}
 
-          <input
-            className="input md:col-span-2"
-            placeholder="Address"
-            value={form.address}
-            onChange={event => updateCreateField('address', event.target.value)}
-          />
-
-          <input
-            className="input md:col-span-2"
-            type="datetime-local"
-            value={form.followUpDate}
-            onChange={event => updateCreateField('followUpDate', event.target.value)}
-          />
-
           <textarea
-            className="input md:col-span-2"
+            className="input md:col-span-4"
             rows="2"
-            placeholder="Additional info"
+            placeholder="Additional lead info"
             value={form.additionalInfo}
             onChange={event => updateCreateField('additionalInfo', event.target.value)}
-          />
-
-          <textarea
-            className="input md:col-span-2"
-            rows="2"
-            placeholder="Remarks"
-            value={form.remarks}
-            onChange={event => updateCreateField('remarks', event.target.value)}
           />
         </div>
 
         <div className="mt-4 flex flex-wrap gap-3">
           <button className="btn-primary" disabled={saving}>
-            {saving ? 'Saving...' : isSalesperson ? 'Create Self Lead' : 'Create Lead'}
+            {saving ? 'Saving...' : isSalesperson ? 'Create Self Lead' : 'Generate Lead'}
           </button>
 
           {!isSalesperson && (
@@ -720,190 +699,17 @@ export default function LeadsPage() {
       />
 
       {view === 'kanban' ? (
-        <LeadKanban leads={leads} onChanged={load} />
+        <LeadKanban
+          leads={visibleLeads}
+          onChanged={load}
+          canUpdateAfterCall={isSalesperson}
+        />
       ) : (
-        <DataTable columns={columns} rows={leads} keyField="_id" />
-      )}
-
-      {editLead && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/40 p-4">
-          <form onSubmit={saveEdit} className="card max-h-[90vh] w-full max-w-5xl overflow-y-auto">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-xl font-bold">Edit lead</h2>
-                <p className="text-sm text-slate-500">
-                  Update lead details, call status, lead type, remarks, and follow-up.
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={closeEdit}
-                className="btn-secondary"
-              >
-                Close
-              </button>
-            </div>
-
-            <div className="mt-5 grid gap-3 md:grid-cols-4">
-              <input
-                className="input"
-                placeholder="Lead name *"
-                value={editForm.name}
-                onChange={event => updateEditField('name', event.target.value)}
-              />
-
-              <input
-                className="input"
-                placeholder="Company"
-                value={editForm.companyName}
-                onChange={event => updateEditField('companyName', event.target.value)}
-              />
-
-              <input
-                className="input"
-                placeholder="Phone"
-                value={editForm.contactNumber}
-                onChange={event => updateEditField('contactNumber', event.target.value)}
-              />
-
-              <input
-                className="input"
-                placeholder="Email"
-                value={editForm.email}
-                onChange={event => updateEditField('email', event.target.value)}
-              />
-
-              <input
-                className="input"
-                placeholder="Website"
-                value={editForm.website}
-                onChange={event => updateEditField('website', event.target.value)}
-              />
-
-              <input
-                className="input"
-                placeholder="Domain"
-                value={editForm.domain}
-                onChange={event => updateEditField('domain', event.target.value)}
-              />
-
-              <input
-                className="input"
-                placeholder="Source"
-                value={editForm.source}
-                onChange={event => updateEditField('source', event.target.value)}
-              />
-
-              <select
-                className="input"
-                value={editForm.leadType}
-                onChange={event => updateEditField('leadType', event.target.value)}
-              >
-                {leadTypes.map(type => (
-                  <option key={type} value={type}>
-                    {type}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                className="input"
-                value={editForm.pipelineStatus}
-                onChange={event => updateEditField('pipelineStatus', event.target.value)}
-              >
-                {pipelineStatuses.map(status => (
-                  <option key={status} value={status}>
-                    {status}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                className="input"
-                value={editForm.callStatus}
-                onChange={event => updateEditField('callStatus', event.target.value)}
-              >
-                {callStatuses.map(status => (
-                  <option key={status || 'empty'} value={status}>
-                    {status || 'Select call status'}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                className="input"
-                value={editForm.actionRequired}
-                onChange={event => updateEditField('actionRequired', event.target.value)}
-              >
-                {actionOptions.map(action => (
-                  <option key={action} value={action}>
-                    {action}
-                  </option>
-                ))}
-              </select>
-
-              {!isSalesperson && (
-                <select
-                  className="input"
-                  value={editForm.assignedTo}
-                  onChange={event => updateEditField('assignedTo', event.target.value)}
-                >
-                  <option value="">Assign salesperson</option>
-                  {salespersons.map(salesperson => (
-                    <option key={salesperson._id} value={salesperson._id}>
-                      {salesperson.name || salesperson.email}
-                    </option>
-                  ))}
-                </select>
-              )}
-
-              <input
-                className="input md:col-span-2"
-                placeholder="Address"
-                value={editForm.address}
-                onChange={event => updateEditField('address', event.target.value)}
-              />
-
-              <input
-                className="input md:col-span-2"
-                type="datetime-local"
-                value={editForm.followUpDate}
-                onChange={event => updateEditField('followUpDate', event.target.value)}
-              />
-
-              <textarea
-                className="input md:col-span-2"
-                rows="3"
-                placeholder="Additional info"
-                value={editForm.additionalInfo}
-                onChange={event => updateEditField('additionalInfo', event.target.value)}
-              />
-
-              <textarea
-                className="input md:col-span-2"
-                rows="3"
-                placeholder="Remarks"
-                value={editForm.remarks}
-                onChange={event => updateEditField('remarks', event.target.value)}
-              />
-            </div>
-
-            <div className="mt-5 flex gap-3">
-              <button className="btn-primary" disabled={saving}>
-                {saving ? 'Saving...' : 'Save Lead'}
-              </button>
-
-              <button
-                type="button"
-                onClick={closeEdit}
-                className="btn-secondary"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-        </div>
+        <DataTable
+          columns={isSalesperson ? salespersonColumns : managerColumns}
+          rows={visibleLeads}
+          keyField="_id"
+        />
       )}
     </div>
   );
