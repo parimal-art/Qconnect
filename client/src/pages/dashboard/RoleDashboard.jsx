@@ -85,6 +85,12 @@ export default function RoleDashboard({ title, subtitle, showTracker = true }) {
   }));
 
   const attendance = data?.attendanceTotals || {};
+  const totalEmployees = Number(
+    data?.childEmployeeCount ??
+      ((roleCounts.HR || 0) +
+        (roleCounts.TEAM_LEADER || 0) +
+        (roleCounts.SALESPERSON || 0))
+  );
 
   const leadTotals = (data?.leadCounts || []).reduce(
     (acc, item) => {
@@ -175,6 +181,13 @@ export default function RoleDashboard({ title, subtitle, showTracker = true }) {
       key: 'profile',
       header: 'Profile',
       render: employee => `${employee.profileCompletionPercentage || 0}%`
+    },
+    {
+      key: 'verificationStatus',
+      header: 'Verification',
+      render: employee => (
+        <StatusBadge value={employee.verificationStatus || (employee.isVerified ? 'verified' : 'pending_review')} />
+      )
     }
   ];
 
@@ -260,11 +273,7 @@ export default function RoleDashboard({ title, subtitle, showTracker = true }) {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <DashboardCard
           title="Total Employees"
-          value={
-            (roleCounts.HR || 0) +
-            (roleCounts.TEAM_LEADER || 0) +
-            (roleCounts.SALESPERSON || 0)
-          }
+          value={totalEmployees}
           icon={Users}
           active={activePanel === 'employees'}
           onClick={() => openPanel('employees')}

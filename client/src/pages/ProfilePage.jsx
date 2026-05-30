@@ -7,6 +7,7 @@ import api from '../lib/api';
 import DataTable from '../components/DataTable';
 import StatusBadge from '../components/StatusBadge';
 import TargetSummaryPanel from '../components/TargetSummaryPanel';
+import EmployeeProfileDownloadButton from '../components/EmployeeProfileDownloadButton';
 import { LoadingState } from '../components/LoadingState';
 import { ROLES, roleLabel } from '../lib/roles';
 import { setUser } from '../store/authSlice';
@@ -264,10 +265,17 @@ export default function ProfilePage() {
             </div>
           </div>
 
-          <div className="text-sm text-slate-500">
-            <p><b>Employee ID:</b> {profile.employeeId || '—'}</p>
-            <p><b>Profile completion:</b> {profile.profileCompletionPercentage || 0}%</p>
-            <p><b>Last submitted:</b> {formatDateTime(profile.lastProfileSubmittedAt)}</p>
+          <div className="flex flex-col items-start gap-3 text-sm text-slate-500 md:items-end">
+            <EmployeeProfileDownloadButton
+              profile={profile}
+              activity={activity}
+              className="btn-primary flex w-full items-center justify-center gap-2 md:w-auto"
+            />
+            <div>
+              <p><b>Employee ID:</b> {profile.employeeId || '—'}</p>
+              <p><b>Profile completion:</b> {profile.profileCompletionPercentage || 0}%</p>
+              <p><b>Last submitted:</b> {formatDateTime(profile.lastProfileSubmittedAt)}</p>
+            </div>
           </div>
         </div>
 
@@ -416,6 +424,3 @@ export default function ProfilePage() {
     </div>
   );
 }
-
-
-

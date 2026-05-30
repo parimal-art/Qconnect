@@ -4,6 +4,7 @@ const Attendance = require('../models/Attendance');
 const Leave = require('../models/Leave');
 const Break = require('../models/Break');
 const { getAccessibleUserIds, buildLeadAccessQuery } = require('../middleware/rbac');
+const { ROLES } = require('../constants/roles');
 const { startOfDay, endOfDay } = require('../utils/time');
 
 const dateRange = query => {
@@ -16,13 +17,25 @@ const dashboardReport = async (user, query = {}) => {
   const ids = await getAccessibleUserIds(user);
   const leadQuery = await buildLeadAccessQuery(user);
   const today = { $gte: startOfDay(), $lte: endOfDay() };
-  const [roleCounts, statusCounts, leadCounts, attendanceTotals, bestSales] = await Promise.all([
+
+  const childIds =
+    user.role === ROLES.ADMIN
+      ? ids
+      : ids.filter(id => String(id) !== String(user._id));
+
+  const employeeScope = {
+    _id: { $in: childIds },
+    isActive: true,
+    ...(user.role === ROLES.ADMIN ? { role: { $ne: ROLES.ADMIN } } : {})
+  };
+
+  const [roleCounts, statusCounts, leadCounts, attendanceTotals, bestSales, childEmployeeCount] = await Promise.all([
     User.aggregate([
-      { $match: { _id: { $in: ids }, isActive: true } },
+      { $match: employeeScope },
       { $group: { _id: '$role', count: { $sum: 1 } } }
     ]),
     User.aggregate([
-      { $match: { _id: { $in: ids }, isActive: true } },
+      { $match: employeeScope },
       { $group: { _id: '$currentActivityState', count: { $sum: 1 } } }
     ]),
     Lead.aggregate([
@@ -30,7 +43,7 @@ const dashboardReport = async (user, query = {}) => {
       { $group: { _id: { pipelineStatus: '$pipelineStatus', leadType: '$leadType', isCompleted: '$isCompleted' }, count: { $sum: 1 } } }
     ]),
     Attendance.aggregate([
-      { $match: { user: { $in: ids }, date: today } },
+      { $match: { user: { $in: childIds }, date: today } },
       { $group: {
         _id: null,
         totalActive: { $sum: '$activeTimeInsideShift' },
@@ -46,9 +59,18 @@ const dashboardReport = async (user, query = {}) => {
       { $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'user' } },
       { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
       { $project: { completed: 1, name: '$user.name', email: '$user.email', employeeId: '$user.employeeId' } }
-    ])
+    ]),
+    User.countDocuments(employeeScope)
   ]);
-  return { roleCounts, statusCounts, leadCounts, attendanceTotals: attendanceTotals[0] || {}, bestSalesperson: bestSales[0] || null };
+
+  return {
+    roleCounts,
+    statusCounts,
+    leadCounts,
+    attendanceTotals: attendanceTotals[0] || {},
+    bestSalesperson: bestSales[0] || null,
+    childEmployeeCount
+  };
 };
 
 const leadsReport = async (user, query = {}) => {

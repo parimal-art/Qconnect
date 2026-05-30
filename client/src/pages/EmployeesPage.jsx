@@ -15,6 +15,14 @@ const roleOptions = [
   { label: 'Salesperson', value: ROLES.SALESPERSON }
 ];
 
+const verificationGroupOptions = [
+  { label: 'All document statuses', value: 'all' },
+  { label: 'New Employees (before document verification)', value: 'new' },
+  { label: 'Document verification pending', value: 'pending' },
+  { label: 'Completed / Verified', value: 'completed' },
+  { label: 'Rejected / Not verified', value: 'rejected' }
+];
+
 export default function EmployeesPage() {
   const { user } = useSelector(state => state.auth);
 
@@ -44,7 +52,7 @@ export default function EmployeesPage() {
       }
 
       if (verificationFilter !== 'all') {
-        params.set('verificationStatus', verificationFilter);
+        params.set('verificationGroup', verificationFilter);
       }
 
       const { data } = await api.get(`/users?${params.toString()}`);
@@ -185,7 +193,7 @@ export default function EmployeesPage() {
         <div>
           <h1 className="text-2xl font-bold">Employees</h1>
           <p className="text-slate-500">
-            Role and hierarchy based employee management. Deactivated employees cannot login.
+            HR/Admin can view child employees, open profiles, download employee details and track document verification.
           </p>
         </div>
 
@@ -243,12 +251,11 @@ export default function EmployeesPage() {
           value={verificationFilter}
           onChange={event => setVerificationFilter(event.target.value)}
         >
-          <option value="all">All verification</option>
-          <option value="pending_review">Pending review</option>
-          <option value="verified">Verified</option>
-          <option value="document_pending">Document pending</option>
-          <option value="not_verified">Not verified</option>
-          <option value="not_submitted">Not submitted</option>
+          {verificationGroupOptions.map(option => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
         </select>
 
         <button type="button" onClick={load} className="btn-secondary">

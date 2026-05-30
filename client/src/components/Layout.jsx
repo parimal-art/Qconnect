@@ -17,6 +17,7 @@ import {
 import { logout } from '../store/authSlice';
 import { ROLES, roleLabel } from '../lib/roles';
 import NotificationBell from './NotificationBell';
+import PwaInstallButton from './PwaInstallButton';
 import { useActivityTracker } from '../hooks/useActivityTracker';
 
 const navByRole = {
@@ -35,6 +36,7 @@ const navByRole = {
   [ROLES.HR]: [
     ['Dashboard', '/hr', Home],
     ['Tracker', '/tracker', Clock],
+    ['Employees', '/employees', Users],
     ['Create Employee', '/employees/new', Users],
     ['Leads', '/leads', Briefcase],
     ['Attendance', '/attendance', CalendarCheck],
@@ -146,6 +148,7 @@ export default function Layout() {
           </div>
 
           <div className="flex items-center gap-3">
+            <PwaInstallButton />
             <NotificationBell />
             <button onClick={onLogout} className="btn-secondary flex items-center gap-2 lg:hidden">
               <LogOut size={16} />
@@ -178,6 +181,3 @@ export default function Layout() {
     </div>
   );
 }
-
-
-

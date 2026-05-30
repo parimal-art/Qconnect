@@ -21,6 +21,13 @@ const stateBucketMap = {
 
 const REVIEW_STATUSES = ['verified', 'not_verified', 'document_pending'];
 
+const VERIFICATION_GROUPS = {
+  new: ['not_submitted'],
+  pending: ['pending_review', 'document_pending'],
+  completed: ['verified'],
+  rejected: ['not_verified']
+};
+
 const number = value => Number(value || 0);
 
 const calculateLiveAttendance = attendance => {
@@ -288,7 +295,15 @@ const getUsers = asyncHandler(async (req, res) => {
     query.isActive = false;
   }
 
-  if (req.query.verificationStatus && req.query.verificationStatus !== 'all') {
+  if (req.query.verificationGroup && req.query.verificationGroup !== 'all') {
+    const statuses = VERIFICATION_GROUPS[req.query.verificationGroup];
+
+    if (!statuses) {
+      throw new ApiError(400, 'Invalid verification group filter');
+    }
+
+    query.verificationStatus = { $in: statuses };
+  } else if (req.query.verificationStatus && req.query.verificationStatus !== 'all') {
     query.verificationStatus = req.query.verificationStatus;
   }
 
@@ -690,6 +705,3 @@ module.exports = {
   completeProfile,
   userActivity
 };
-
-
-
