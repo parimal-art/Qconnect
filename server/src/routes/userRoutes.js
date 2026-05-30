@@ -13,6 +13,7 @@ router.get('/children/tracking', user.trackingForChildren);
 router.put('/profile/complete', upload.any(), user.completeProfile);
 router.get('/:id', user.getUserById);
 router.put('/:id', user.updateUser);
+router.patch('/:id/status', authorizeRoles(ROLES.ADMIN, ROLES.HR), user.setUserActiveStatus);
 router.delete('/:id', authorizeRoles(ROLES.ADMIN, ROLES.HR), user.deleteUser);
 router.put('/:id/verify', authorizeRoles(ROLES.ADMIN, ROLES.HR), user.verifyUser);
 router.get('/:id/activity', user.userActivity);

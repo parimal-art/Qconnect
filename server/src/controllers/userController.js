@@ -1,6 +1,7 @@
 const User = require('../models/User');
 const Lead = require('../models/Lead');
 const Attendance = require('../models/Attendance');
+const RefreshToken = require('../models/RefreshToken');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { createEmployee } = require('../services/userService');
@@ -105,13 +106,31 @@ const createUser = asyncHandler(async (req, res) => {
 });
 
 const getUsers = asyncHandler(async (req, res) => {
-  const query = buildChildQuery(req.user);
-  if (req.query.role) query.role = req.query.role;
+  const includeInactive =
+    [ROLES.ADMIN, ROLES.HR].includes(req.user.role) || req.query.status === 'all';
+
+  const query = buildChildQuery(req.user, { includeInactive });
+
+  if (req.user.role === ROLES.ADMIN && !req.query.role) {
+    query.role = { $ne: ROLES.ADMIN };
+  }
+
+  if (req.query.role && req.query.role !== 'all') {
+    query.role = req.query.role;
+  }
+
+  if (req.query.status === 'active') {
+    query.isActive = true;
+  }
+
+  if (req.query.status === 'inactive') {
+    query.isActive = false;
+  }
 
   const users = await User.find(query)
     .populate('assignedHR', 'name email employeeId hrUniqueId')
     .populate('assignedTeamLeader', 'name email employeeId teamLeaderUniqueId')
-    .sort({ createdAt: -1 });
+    .sort({ isActive: -1, createdAt: -1 });
 
   res.json({ success: true, users });
 });
@@ -286,17 +305,85 @@ const deleteUser = asyncHandler(async (req, res) => {
     throw new ApiError(403, 'Access denied');
   }
 
+  if (String(req.user._id) === String(req.params.id)) {
+    throw new ApiError(400, 'You cannot deactivate your own account');
+  }
+
   if (!(await canAccessUser(req.user, req.params.id))) {
     throw new ApiError(403, 'Access denied');
   }
 
-  await User.findByIdAndUpdate(req.params.id, {
-    isActive: false,
-    onlineStatus: 'offline',
-    currentActivityState: ACTIVITY_STATES.OFFLINE
+  const user = await User.findById(req.params.id);
+  if (!user) throw new ApiError(404, 'User not found');
+
+  user.isActive = false;
+  user.onlineStatus = 'offline';
+  user.currentActivityState = ACTIVITY_STATES.OFFLINE;
+  user.lastSeen = new Date();
+  user.tokenVersion += 1;
+
+  await user.save();
+  await RefreshToken.updateMany({ user: user._id, revokedAt: null }, { revokedAt: new Date() });
+
+  req.app.get('io')?.emit('employee_status_changed', {
+    userId: user._id,
+    isActive: user.isActive,
+    currentActivityState: user.currentActivityState,
+    onlineStatus: user.onlineStatus
   });
 
-  res.json({ success: true, message: 'Employee deactivated' });
+  res.json({ success: true, message: 'Employee deactivated', user });
+});
+
+const setUserActiveStatus = asyncHandler(async (req, res) => {
+  if (req.user.role !== ROLES.ADMIN && req.user.role !== ROLES.HR) {
+    throw new ApiError(403, 'Access denied');
+  }
+
+  if (!(await canAccessUser(req.user, req.params.id))) {
+    throw new ApiError(403, 'Access denied');
+  }
+
+  const user = await User.findById(req.params.id);
+  if (!user) throw new ApiError(404, 'User not found');
+
+  const isActive =
+    req.body.isActive === true ||
+    req.body.isActive === 'true' ||
+    req.body.status === 'active';
+
+  if (!isActive && String(req.user._id) === String(user._id)) {
+    throw new ApiError(400, 'You cannot deactivate your own account');
+  }
+
+  user.isActive = isActive;
+
+  if (!isActive) {
+    user.onlineStatus = 'offline';
+    user.currentActivityState = ACTIVITY_STATES.OFFLINE;
+    user.lastSeen = new Date();
+    user.tokenVersion += 1;
+
+    await RefreshToken.updateMany(
+      { user: user._id, revokedAt: null },
+      { revokedAt: new Date() }
+    );
+  }
+
+  await user.save();
+
+  req.app.get('io')?.emit('employee_status_changed', {
+    userId: user._id,
+    isActive: user.isActive,
+    currentActivityState: user.currentActivityState,
+    onlineStatus: user.onlineStatus
+  });
+
+  res.json({
+    success: true,
+    message: isActive ? 'Employee activated' : 'Employee deactivated',
+    user
+  });
 });
 
 const verifyUser = asyncHandler(async (req, res) => {
@@ -398,6 +485,7 @@ module.exports = {
   getUserById,
   updateUser,
   deleteUser,
+  setUserActiveStatus,
   verifyUser,
   completeProfile,
   userActivity

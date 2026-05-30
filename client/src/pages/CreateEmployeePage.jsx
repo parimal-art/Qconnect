@@ -10,7 +10,7 @@ export default function CreateEmployeePage() {
   const [form, setForm] = useState(initial);
   const [users, setUsers] = useState([]);
   const [message, setMessage] = useState('');
-  useEffect(() => { api.get('/users').then(({ data }) => setUsers(data.users || [])); }, []);
+  useEffect(() => { api.get('/users?status=active').then(({ data }) => setUsers(data.users || [])); }, []);
   const hrs = users.filter(u => u.role === ROLES.HR);
   const tls = users.filter(u => u.role === ROLES.TEAM_LEADER && (!form.assignedHR || u.assignedHR?._id === form.assignedHR || u.assignedHR === form.assignedHR));
   const submit = async e => {

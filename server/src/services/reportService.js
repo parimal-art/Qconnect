@@ -86,7 +86,7 @@ const teamPerformanceReport = async (user, query = {}) => {
     { $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'employee' } },
     { $unwind: { path: '$employee', preserveNullAndEmptyArrays: true } },
     { $project: {
-      employee: { name: '$employee.name', email: '$employee.email', employeeId: '$employee.employeeId', role: '$employee.role' },
+      employee: { _id: '$employee._id', name: '$employee.name', email: '$employee.email', employeeId: '$employee.employeeId', role: '$employee.role' },
       total: 1, completed: 1, won: 1, lost: 1, selfGenerated: 1,
       performancePercentage: { $cond: [{ $eq: ['$total', 0] }, 0, { $round: [{ $multiply: [{ $divide: ['$completed', '$total'] }, 100] }, 0] }] }
     } },

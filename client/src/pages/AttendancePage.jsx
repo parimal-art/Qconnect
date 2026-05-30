@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 
 import api from '../lib/api';
 import DataTable from '../components/DataTable';
@@ -45,8 +46,17 @@ export default function AttendancePage() {
       header: 'Employee',
       render: row => (
         <div>
-          <p className="font-semibold">{row.user?.name || row.user?.email}</p>
-          <p className="text-xs text-slate-500">{row.user?.employeeId}</p>
+          {row.user?._id ? (
+            <Link
+              to={`/employees/${row.user._id}`}
+              className="font-semibold text-blue-600 hover:underline"
+            >
+              {row.user?.name || row.user?.email}
+            </Link>
+          ) : (
+            <p className="font-semibold">{row.user?.name || row.user?.email || '—'}</p>
+          )}
+          <p className="text-xs text-slate-500">{row.user?.employeeId || '—'}</p>
         </div>
       )
     },

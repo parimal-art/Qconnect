@@ -111,6 +111,7 @@ export default function App() {
             <Route path="/tracker" element={<TrackerPage />} />
             <Route path="/employees" element={<EmployeesPage />} />
             <Route path="/employees/new" element={<CreateEmployeePage />} />
+            <Route path="/employees/:id" element={<ProfilePage />} />
             <Route path="/leads" element={<LeadsPage />} />
             <Route path="/attendance" element={<AttendancePage />} />
             <Route path="/reports" element={<ReportsPage />} />

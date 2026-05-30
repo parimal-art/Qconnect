@@ -22,6 +22,7 @@ const navByRole = {
     ['Dashboard', '/admin', Home],
     ['Tracker', '/tracker', Clock],
     ['Employees', '/employees', Users],
+    ['Create Employee', '/employees/new', Users],
     ['Leads', '/leads', Briefcase],
     ['Attendance', '/attendance', CalendarCheck],
     ['Reports', '/reports', BarChart3],

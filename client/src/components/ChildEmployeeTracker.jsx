@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 
 import api from '../lib/api';
 import { connectSocket } from '../lib/socket';
@@ -279,7 +280,12 @@ export default function ChildEmployeeTracker() {
       header: 'Employee',
       render: row => (
         <div>
-          <p className="font-semibold">{row.employeeName}</p>
+          <Link
+            to={`/employees/${row.userId}`}
+            className="font-semibold text-blue-600 hover:underline"
+          >
+            {row.employeeName}
+          </Link>
           <p className="text-xs text-slate-500">{row.employeeId}</p>
         </div>
       )

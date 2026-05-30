@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSelector } from 'react-redux';
+import { Link } from 'react-router-dom';
 import api from '../lib/api';
 import DataTable from '../components/DataTable';
 import StatusBadge from '../components/StatusBadge';
@@ -78,6 +79,8 @@ export default function LeadsPage() {
   const [query, setQuery] = useState('');
   const [view, setView] = useState('table');
   const [completedFilter, setCompletedFilter] = useState('all');
+  const [leadTypeFilter, setLeadTypeFilter] = useState('all');
+  const [pipelineFilter, setPipelineFilter] = useState('all');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -93,10 +96,21 @@ export default function LeadsPage() {
   );
 
   const visibleLeads = useMemo(() => {
-    if (completedFilter === 'completed') return leads.filter(lead => lead.isCompleted);
-    if (completedFilter === 'pending') return leads.filter(lead => !lead.isCompleted);
-    return leads;
-  }, [leads, completedFilter]);
+    return leads.filter(lead => {
+      const completedOk =
+        completedFilter === 'all' ||
+        (completedFilter === 'completed' && lead.isCompleted) ||
+        (completedFilter === 'pending' && !lead.isCompleted);
+
+      const leadTypeOk =
+        leadTypeFilter === 'all' || lead.leadType === leadTypeFilter;
+
+      const pipelineOk =
+        pipelineFilter === 'all' || lead.pipelineStatus === pipelineFilter;
+
+      return completedOk && leadTypeOk && pipelineOk;
+    });
+  }, [leads, completedFilter, leadTypeFilter, pipelineFilter]);
 
   const load = async () => {
     setLoading(true);
@@ -352,7 +366,17 @@ export default function LeadsPage() {
     {
       key: 'assignedTo',
       header: 'Assigned To',
-      render: lead => lead.assignedTo?.name || 'Unassigned'
+      render: lead =>
+        lead.assignedTo?._id ? (
+          <Link
+            to={`/employees/${lead.assignedTo._id}`}
+            className="font-semibold text-blue-600 hover:underline"
+          >
+            {lead.assignedTo.name || lead.assignedTo.email}
+          </Link>
+        ) : (
+          'Unassigned'
+        )
     },
     {
       key: 'isCompleted',
@@ -558,6 +582,32 @@ export default function LeadsPage() {
             <option value="all">All leads</option>
             <option value="pending">Pending leads</option>
             <option value="completed">Completed leads</option>
+          </select>
+
+          <select
+            className="input w-40"
+            value={leadTypeFilter}
+            onChange={event => setLeadTypeFilter(event.target.value)}
+          >
+            <option value="all">All lead types</option>
+            {leadTypes.map(type => (
+              <option key={type} value={type}>
+                {type}
+              </option>
+            ))}
+          </select>
+
+          <select
+            className="input w-44"
+            value={pipelineFilter}
+            onChange={event => setPipelineFilter(event.target.value)}
+          >
+            <option value="all">All pipeline</option>
+            {pipelineStatuses.map(status => (
+              <option key={status} value={status}>
+                {status}
+              </option>
+            ))}
           </select>
         </div>
       </div>
