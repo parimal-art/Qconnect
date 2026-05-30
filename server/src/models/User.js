@@ -3,12 +3,31 @@ const validator = require('validator');
 const { ROLES, ACTIVITY_STATES } = require('../constants/roles');
 const { hashPassword, comparePassword } = require('../utils/password');
 
+const PROFILE_VERIFICATION_STATUSES = [
+  'not_submitted',
+  'pending_review',
+  'verified',
+  'not_verified',
+  'document_pending'
+];
+
 const DocumentSchema = new mongoose.Schema(
   {
+    documentName: { type: String, trim: true },
     label: { type: String, trim: true },
     url: { type: String, trim: true },
     mimeType: { type: String, trim: true },
-    uploadedAt: { type: Date, default: Date.now }
+    originalName: { type: String, trim: true },
+    uploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    uploadedAt: { type: Date, default: Date.now },
+    status: {
+      type: String,
+      enum: ['pending_review', 'verified', 'not_verified', 'document_pending'],
+      default: 'pending_review'
+    },
+    reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    reviewedAt: Date,
+    reviewNote: String
   },
   { _id: true }
 );
@@ -109,6 +128,16 @@ const UserSchema = new mongoose.Schema(
     },
 
     pendingRequiredFields: [{ type: String }],
+
+    verificationStatus: {
+      type: String,
+      enum: PROFILE_VERIFICATION_STATUSES,
+      default: 'not_submitted',
+      index: true
+    },
+
+    verificationNotes: { type: String, trim: true },
+    lastProfileSubmittedAt: Date,
 
     isVerified: {
       type: Boolean,
@@ -249,5 +278,7 @@ UserSchema.methods.calculateProfileCompletion = function calculateProfileComplet
 };
 
 UserSchema.index({ role: 1, assignedHR: 1, assignedTeamLeader: 1 });
+UserSchema.index({ verificationStatus: 1, updatedAt: -1 });
 
 module.exports = mongoose.model('User', UserSchema);
+module.exports.PROFILE_VERIFICATION_STATUSES = PROFILE_VERIFICATION_STATUSES;

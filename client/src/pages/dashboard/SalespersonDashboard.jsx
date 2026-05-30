@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Briefcase, CheckCircle2, Clock, Gift } from 'lucide-react';
 import api from '../../lib/api';
 import DashboardCard from '../../components/DashboardCard';
+import TargetSummaryPanel from '../../components/TargetSummaryPanel';
 import DataTable from '../../components/DataTable';
 import StatusBadge from '../../components/StatusBadge';
 import { LoadingState } from '../../components/LoadingState';
@@ -51,6 +52,8 @@ export default function SalespersonDashboard() {
       render: r => <StatusBadge value={r.pipelineStatus} />
     },
     { key: 'callStatus', header: 'Call' },
+    { key: 'finalizationStatus', header: 'Deal', render: r => <StatusBadge value={r.finalizationStatus || 'not_requested'} /> },
+    { key: 'finalizedAmount', header: 'Sales', render: r => `₹${Number(r.finalizedAmount || 0).toLocaleString('en-IN')}` },
     {
       key: 'followUpDate',
       header: 'Follow-up',
@@ -71,6 +74,8 @@ export default function SalespersonDashboard() {
         <DashboardCard title="Self Generated" value={self} icon={Gift} />
         <DashboardCard title="Reward Eligible" value={reward} icon={Gift} />
       </div>
+
+      <TargetSummaryPanel title="My assigned vs completed sales target" compact />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <DashboardCard title="Active in shift" value={h(today.activeTimeInsideShift)} icon={Clock} />

@@ -10,7 +10,9 @@ import {
   Menu,
   Users,
   Bell,
-  UserCircle
+  UserCircle,
+  Target,
+  FileText
 } from 'lucide-react';
 import { logout } from '../store/authSlice';
 import { ROLES, roleLabel } from '../lib/roles';
@@ -26,6 +28,8 @@ const navByRole = {
     ['Leads', '/leads', Briefcase],
     ['Attendance', '/attendance', CalendarCheck],
     ['Reports', '/reports', BarChart3],
+    ['Targets', '/targets', Target],
+    ['Quotations', '/quotations', FileText],
     ['Notifications', '/notifications', Bell]
   ],
   [ROLES.HR]: [
@@ -35,6 +39,8 @@ const navByRole = {
     ['Leads', '/leads', Briefcase],
     ['Attendance', '/attendance', CalendarCheck],
     ['Reports', '/reports', BarChart3],
+    ['Targets', '/targets', Target],
+    ['Quotations', '/quotations', FileText],
     ['Notifications', '/notifications', Bell]
   ],
   [ROLES.TEAM_LEADER]: [
@@ -43,11 +49,15 @@ const navByRole = {
     ['My Salespersons', '/employees', Users],
     ['Leads', '/leads', Briefcase],
     ['Reports', '/reports', BarChart3],
+    ['Targets', '/targets', Target],
+    ['Quotations', '/quotations', FileText],
     ['Notifications', '/notifications', Bell]
   ],
   [ROLES.SALESPERSON]: [
     ['Dashboard', '/salesperson', Home],
     ['My Leads', '/leads', Briefcase],
+    ['Targets', '/targets', Target],
+    ['Quotations', '/quotations', FileText],
     ['Break/Leave', '/break-leave', CalendarCheck],
     ['Profile', '/profile', UserCircle],
     ['Notifications', '/notifications', Bell]

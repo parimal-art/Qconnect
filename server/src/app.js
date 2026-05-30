@@ -15,6 +15,8 @@ const breakRoutes = require('./routes/breakRoutes');
 const leaveRoutes = require('./routes/leaveRoutes');
 const reportRoutes = require('./routes/reportRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
+const targetRoutes = require('./routes/targetRoutes');
+const quotationRoutes = require('./routes/quotationRoutes');
 const { notFound, errorHandler } = require('./middleware/errorHandler');
 
 const app = express();
@@ -40,6 +42,8 @@ app.use('/api/break', breakRoutes);
 app.use('/api/leave', leaveRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/targets', targetRoutes);
+app.use('/api/quotations', quotationRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

@@ -14,6 +14,7 @@ router.get('/:id', leads.getById);
 router.put('/:id', leads.update);
 router.put('/:id/status', leads.updateStatus);
 router.put('/:id/complete', leads.complete);
+router.put('/:id/finalize-deal', leads.finalizeDeal);
 router.delete('/:id', ensureCanDeleteLead, leads.remove);
 router.post('/:id/timeline', leads.addTimeline);
 

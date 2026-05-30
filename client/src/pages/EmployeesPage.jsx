@@ -24,6 +24,7 @@ export default function EmployeesPage() {
   const [query, setQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [verificationFilter, setVerificationFilter] = useState('all');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
@@ -42,6 +43,10 @@ export default function EmployeesPage() {
         params.set('role', roleFilter);
       }
 
+      if (verificationFilter !== 'all') {
+        params.set('verificationStatus', verificationFilter);
+      }
+
       const { data } = await api.get(`/users?${params.toString()}`);
       setUsers(data.users || []);
     } catch (err) {
@@ -49,7 +54,7 @@ export default function EmployeesPage() {
     } finally {
       setLoading(false);
     }
-  }, [roleFilter, statusFilter]);
+  }, [roleFilter, statusFilter, verificationFilter]);
 
   useEffect(() => {
     load();
@@ -140,14 +145,9 @@ export default function EmployeesPage() {
       render: employee => `${employee.profileCompletionPercentage || 0}%`
     },
     {
-      key: 'isVerified',
-      header: 'Verified',
-      render: employee =>
-        employee.isVerified ? (
-          <StatusBadge value="Approved" />
-        ) : (
-          <StatusBadge value="Pending" />
-        )
+      key: 'verificationStatus',
+      header: 'Verification',
+      render: employee => <StatusBadge value={employee.verificationStatus || (employee.isVerified ? 'verified' : 'pending_review')} />
     },
     {
       key: 'shift',
@@ -208,7 +208,7 @@ export default function EmployeesPage() {
         </div>
       )}
 
-      <div className="grid gap-3 lg:grid-cols-4">
+      <div className="grid gap-3 lg:grid-cols-5">
         <input
           className="input"
           placeholder="Search name, email, ID, role..."
@@ -236,6 +236,19 @@ export default function EmployeesPage() {
           <option value="all">All login statuses</option>
           <option value="active">Active login only</option>
           <option value="inactive">Deactivated only</option>
+        </select>
+
+        <select
+          className="input"
+          value={verificationFilter}
+          onChange={event => setVerificationFilter(event.target.value)}
+        >
+          <option value="all">All verification</option>
+          <option value="pending_review">Pending review</option>
+          <option value="verified">Verified</option>
+          <option value="document_pending">Document pending</option>
+          <option value="not_verified">Not verified</option>
+          <option value="not_submitted">Not submitted</option>
         </select>
 
         <button type="button" onClick={load} className="btn-secondary">

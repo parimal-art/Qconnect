@@ -146,6 +146,7 @@ export default function LeadsPage() {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [finalAmountEdits, setFinalAmountEdits] = useState({});
 
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -380,6 +381,34 @@ export default function LeadsPage() {
     }
   };
 
+  const finalizeDeal = async (lead, status = 'finalized') => {
+    setError('');
+    setMessage('');
+
+    if (!isManagerRole) {
+      setError('Only TL, HR, or Admin can finalize deals.');
+      return;
+    }
+
+    const finalAmount = finalAmountEdits[lead._id] ?? lead.finalizedAmount ?? '';
+
+    if (status === 'finalized' && (!finalAmount || Number(finalAmount) < 0)) {
+      setError('Enter a valid final deal amount.');
+      return;
+    }
+
+    try {
+      await api.put(`/leads/${lead._id}/finalize-deal`, {
+        status,
+        finalAmount: Number(finalAmount || 0)
+      });
+      setMessage(status === 'finalized' ? 'Deal finalized and sales target updated.' : 'Deal rejected.');
+      await load();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Deal finalization failed.');
+    }
+  };
+
   const clearFilters = () => {
     setQuery('');
     setCompletedFilter('all');
@@ -466,6 +495,52 @@ export default function LeadsPage() {
       key: 'isCompleted',
       header: 'Completed',
       render: lead => <StatusBadge value={lead.isCompleted ? 'Approved' : 'Pending'} />
+    },
+    {
+      key: 'finalizationStatus',
+      header: 'Deal Review',
+      render: lead => <StatusBadge value={lead.finalizationStatus || 'not_requested'} />
+    },
+    {
+      key: 'finalizedAmount',
+      header: 'Final Amount',
+      render: lead => `₹${Number(lead.finalizedAmount || 0).toLocaleString('en-IN')}`
+    },
+    {
+      key: 'dealActions',
+      header: 'TL/HR/Admin Actions',
+      render: lead => (
+        <div className="flex min-w-52 flex-col gap-2">
+          {lead.pipelineStatus === 'Won' && lead.finalizationStatus !== 'finalized' && (
+            <>
+              <input
+                className="input"
+                type="number"
+                min="0"
+                placeholder="Final amount"
+                value={finalAmountEdits[lead._id] ?? lead.finalizedAmount ?? ''}
+                onChange={event =>
+                  setFinalAmountEdits(current => ({ ...current, [lead._id]: event.target.value }))
+                }
+              />
+              <button type="button" className="text-left text-sm font-semibold text-emerald-600" onClick={() => finalizeDeal(lead, 'finalized')}>
+                Finalize Deal
+              </button>
+              <button type="button" className="text-left text-sm font-semibold text-rose-600" onClick={() => finalizeDeal(lead, 'rejected')}>
+                Reject Won Deal
+              </button>
+            </>
+          )}
+          {lead.pipelineStatus === 'Won' && lead.finalizationStatus === 'finalized' && (
+            <Link to="/quotations" className="text-sm font-semibold text-blue-600 hover:underline">
+              Generate / View Quotation
+            </Link>
+          )}
+          {lead.quotations?.length > 0 && (
+            <span className="text-xs text-slate-500">{lead.quotations.length} quotation saved</span>
+          )}
+        </div>
+      )
     }
   ];
 
@@ -599,6 +674,16 @@ export default function LeadsPage() {
       key: 'isCompleted',
       header: 'Completed',
       render: lead => <StatusBadge value={lead.isCompleted ? 'Approved' : 'Pending'} />
+    },
+    {
+      key: 'finalizationStatus',
+      header: 'Deal Review',
+      render: lead => <StatusBadge value={lead.finalizationStatus || 'not_requested'} />
+    },
+    {
+      key: 'finalizedAmount',
+      header: 'Sales Amount',
+      render: lead => `₹${Number(lead.finalizedAmount || 0).toLocaleString('en-IN')}`
     },
     {
       key: 'actions',

@@ -25,6 +25,7 @@ import DashboardCard from '../../components/DashboardCard';
 import ChildEmployeeTracker from '../../components/ChildEmployeeTracker';
 import DataTable from '../../components/DataTable';
 import StatusBadge from '../../components/StatusBadge';
+import TargetSummaryPanel from '../../components/TargetSummaryPanel';
 import { LoadingState } from '../../components/LoadingState';
 import { ROLES, roleLabel } from '../../lib/roles';
 
@@ -224,9 +225,14 @@ export default function RoleDashboard({ title, subtitle, showTracker = true }) {
         )
     },
     {
-      key: 'completed',
-      header: 'Completed',
-      render: lead => <StatusBadge value={lead.isCompleted ? 'Approved' : 'Pending'} />
+      key: 'finalizationStatus',
+      header: 'Deal',
+      render: lead => <StatusBadge value={lead.finalizationStatus || 'not_requested'} />
+    },
+    {
+      key: 'finalizedAmount',
+      header: 'Final Amount',
+      render: lead => `₹${Number(lead.finalizedAmount || 0).toLocaleString('en-IN')}`
     }
   ];
 
@@ -246,6 +252,10 @@ export default function RoleDashboard({ title, subtitle, showTracker = true }) {
           </Link>
         )}
       </div>
+
+      {[ROLES.ADMIN, ROLES.HR, ROLES.TEAM_LEADER].includes(user?.role) && (
+        <TargetSummaryPanel title="My target / team sales summary" compact />
+      )}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <DashboardCard

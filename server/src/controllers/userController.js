@@ -5,6 +5,7 @@ const RefreshToken = require('../models/RefreshToken');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { createEmployee } = require('../services/userService');
+const { notifyMany, notifyUser } = require('../services/notificationService');
 const { buildChildQuery, canAccessUser, getAccessibleUserIds } = require('../middleware/rbac');
 const { ROLES, ACTIVITY_STATES } = require('../constants/roles');
 const { startOfDay, endOfDay, formatDuration, splitDurationByShift } = require('../utils/time');
@@ -16,6 +17,8 @@ const stateBucketMap = {
   [ACTIVITY_STATES.ON_BREAK]: 'break',
   [ACTIVITY_STATES.OFFLINE]: 'offline'
 };
+
+const REVIEW_STATUSES = ['verified', 'not_verified', 'document_pending'];
 
 const number = value => Number(value || 0);
 
@@ -100,6 +103,121 @@ const calculateLiveAttendance = attendance => {
   return live;
 };
 
+const uniqueIds = ids => [...new Set(ids.filter(Boolean).map(String))];
+
+const parseJsonArray = value => {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+const getProfileReviewerIds = async employee => {
+  const reviewerIds = [];
+
+  const admins = await User.find({ role: ROLES.ADMIN, isActive: true }).select('_id').lean();
+  reviewerIds.push(...admins.map(admin => admin._id));
+
+  if (employee.assignedHR) reviewerIds.push(employee.assignedHR);
+  if (employee.createdBy) reviewerIds.push(employee.createdBy);
+
+  return uniqueIds(reviewerIds).filter(id => String(id) !== String(employee._id));
+};
+
+const sendProfileReviewNotification = async ({ req, employee, reason }) => {
+  const users = await getProfileReviewerIds(employee);
+
+  if (!users.length) return;
+
+  const title = 'Employee profile needs review';
+  const message = `${employee.name || employee.email} ${reason || 'submitted profile details/documents for verification'}.`;
+
+  await notifyMany({
+    users,
+    title,
+    message,
+    type: 'profile_review_required',
+    metadata: { userId: employee._id, employeeId: employee.employeeId }
+  });
+
+  req.app.get('io')?.emit('profile_review_required', {
+    userId: employee._id,
+    verificationStatus: employee.verificationStatus
+  });
+};
+
+const appendUploadedProfileFiles = ({ user, files = [], body = {}, actorId }) => {
+  const documentNames = parseJsonArray(body.documentNames);
+  let otherDocumentIndex = 0;
+
+  files.forEach(file => {
+    const url = `/uploads/${file.filename}`;
+
+    if (file.fieldname === 'profilePhoto') {
+      user.profilePhoto = url;
+      return;
+    }
+
+    if (file.fieldname === 'aadhaarCard') {
+      user.aadhaarCard = url;
+      return;
+    }
+
+    if (file.fieldname === 'previousCompanyPayslip') {
+      user.previousCompanyPayslip = url;
+    }
+
+    if (file.fieldname === 'experienceLetter') {
+      user.experienceLetter = url;
+    }
+
+    if (file.fieldname === 'panCard') {
+      user.panCard = url;
+    }
+
+    if (file.fieldname === 'otherDocuments' || file.fieldname.startsWith('otherDocuments')) {
+      const name = documentNames[otherDocumentIndex] || file.originalname || `Document ${otherDocumentIndex + 1}`;
+      otherDocumentIndex += 1;
+
+      user.documents.push({
+        documentName: name,
+        label: name,
+        url,
+        mimeType: file.mimetype,
+        originalName: file.originalname,
+        uploadedBy: actorId,
+        status: 'pending_review'
+      });
+    }
+  });
+
+  const existingDocs = parseJsonArray(body.documents);
+  existingDocs.forEach(doc => {
+    if (!doc?.url) return;
+    user.documents.push({
+      documentName: doc.documentName || doc.label || 'Document',
+      label: doc.label || doc.documentName || 'Document',
+      url: doc.url,
+      mimeType: doc.mimeType,
+      uploadedBy: actorId,
+      status: 'pending_review'
+    });
+  });
+};
+
+const markProfilePendingReview = user => {
+  user.isVerified = false;
+  user.verificationStatus = 'pending_review';
+  user.verificationNotes = undefined;
+  user.verifiedBy = undefined;
+  user.verifiedAt = undefined;
+  user.lastProfileSubmittedAt = new Date();
+};
+
 const createUser = asyncHandler(async (req, res) => {
   const user = await createEmployee({ creator: req.user, data: req.body });
   res.status(201).json({ success: true, user });
@@ -127,10 +245,14 @@ const getUsers = asyncHandler(async (req, res) => {
     query.isActive = false;
   }
 
+  if (req.query.verificationStatus && req.query.verificationStatus !== 'all') {
+    query.verificationStatus = req.query.verificationStatus;
+  }
+
   const users = await User.find(query)
     .populate('assignedHR', 'name email employeeId hrUniqueId')
     .populate('assignedTeamLeader', 'name email employeeId teamLeaderUniqueId')
-    .sort({ isActive: -1, createdAt: -1 });
+    .sort({ isActive: -1, updatedAt: -1, createdAt: -1 });
 
   res.json({ success: true, users });
 });
@@ -223,6 +345,7 @@ const trackingForChildren = asyncHandler(async (req, res) => {
       assignedParentName: user.assignedTeamLeader?.name || user.assignedHR?.name || 'Admin',
       onlineStatus: user.onlineStatus,
       currentActivityState: user.currentActivityState,
+      verificationStatus: user.verificationStatus,
       loginTime: attendance.loginTime,
       logoutTime: attendance.logoutTime,
       lastHeartbeatAt: attendance.lastHeartbeatAt,
@@ -272,7 +395,10 @@ const getUserById = asyncHandler(async (req, res) => {
 
   const user = await User.findById(req.params.id)
     .populate('assignedHR', 'name email employeeId')
-    .populate('assignedTeamLeader', 'name email employeeId');
+    .populate('assignedTeamLeader', 'name email employeeId')
+    .populate('verifiedBy', 'name email employeeId')
+    .populate('documents.uploadedBy', 'name email employeeId')
+    .populate('documents.reviewedBy', 'name email employeeId');
 
   if (!user) throw new ApiError(404, 'User not found');
 
@@ -293,9 +419,18 @@ const updateUser = asyncHandler(async (req, res) => {
   Object.assign(user, req.body);
   user.calculateProfileCompletion();
 
-  if (user.profileCompletionPercentage < 100) user.isVerified = false;
+  if (String(req.user._id) === String(user._id)) {
+    markProfilePendingReview(user);
+  } else if (user.profileCompletionPercentage < 100) {
+    user.isVerified = false;
+    user.verificationStatus = 'document_pending';
+  }
 
   await user.save();
+
+  if (String(req.user._id) === String(user._id)) {
+    await sendProfileReviewNotification({ req, employee: user, reason: 'updated profile details' });
+  }
 
   res.json({ success: true, user });
 });
@@ -398,17 +533,48 @@ const verifyUser = asyncHandler(async (req, res) => {
   const user = await User.findById(req.params.id);
   if (!user) throw new ApiError(404, 'User not found');
 
+  const status = req.body.status || (req.body.isVerified === false ? 'not_verified' : 'verified');
+
+  if (!REVIEW_STATUSES.includes(status)) {
+    throw new ApiError(400, `Status must be one of: ${REVIEW_STATUSES.join(', ')}`);
+  }
+
   user.calculateProfileCompletion();
 
-  if (user.profileCompletionPercentage < 100) {
+  if (status === 'verified' && user.profileCompletionPercentage < 100) {
     throw new ApiError(400, `Profile incomplete: ${user.pendingRequiredFields.join(', ')}`);
   }
 
-  user.isVerified = true;
+  user.isVerified = status === 'verified';
+  user.verificationStatus = status;
+  user.verificationNotes = req.body.notes || req.body.verificationNotes || '';
   user.verifiedBy = req.user._id;
   user.verifiedAt = new Date();
 
+  user.documents.forEach(document => {
+    if (document.status === 'pending_review') {
+      document.status = status === 'verified' ? 'verified' : status;
+      document.reviewedBy = req.user._id;
+      document.reviewedAt = new Date();
+      document.reviewNote = user.verificationNotes;
+    }
+  });
+
   await user.save();
+
+  await notifyUser({
+    user: user._id,
+    title: 'Profile verification updated',
+    message: `Your profile status is now ${status.replace(/_/g, ' ')}.${user.verificationNotes ? ` Note: ${user.verificationNotes}` : ''}`,
+    type: 'profile_verification_updated',
+    metadata: { userId: user._id, status }
+  });
+
+  req.app.get('io')?.emit('profile_verification_updated', {
+    userId: user._id,
+    verificationStatus: user.verificationStatus,
+    isVerified: user.isVerified
+  });
 
   res.json({ success: true, user });
 });
@@ -422,36 +588,26 @@ const completeProfile = asyncHandler(async (req, res) => {
   const normalizedBody = Object.fromEntries(
     Object.entries(req.body || {})
       .map(([key, value]) => [key, typeof value === 'string' ? value.trim() : value])
-      .filter(([, value]) => value !== undefined && value !== null && value !== '')
+      .filter(([key, value]) =>
+        !['documents', 'documentNames'].includes(key) &&
+        value !== undefined &&
+        value !== null &&
+        value !== ''
+      )
   );
 
   if (normalizedBody.gender && !allowedGenderValues.includes(normalizedBody.gender)) {
     throw new ApiError(400, `Gender must be one of: ${allowedGenderValues.join(', ')}`);
   }
 
-  const fileMap = Object.fromEntries(
-    (req.files || []).map(file => [file.fieldname, `/uploads/${file.filename}`])
-  );
-
-  Object.assign(user, normalizedBody, fileMap);
-
-  if (req.body.documents) {
-    let docs = [];
-
-    try {
-      docs = Array.isArray(req.body.documents)
-        ? req.body.documents
-        : JSON.parse(req.body.documents || '[]');
-    } catch {
-      throw new ApiError(400, 'Invalid documents payload');
-    }
-
-    user.documents.push(...docs);
-  }
+  Object.assign(user, normalizedBody);
+  appendUploadedProfileFiles({ user, files: req.files || [], body: req.body, actorId: req.user._id });
 
   user.calculateProfileCompletion();
+  markProfilePendingReview(user);
 
   await user.save();
+  await sendProfileReviewNotification({ req, employee: user, reason: 'submitted profile details/documents for verification' });
 
   res.json({ success: true, user });
 });
@@ -470,6 +626,7 @@ const userActivity = asyncHandler(async (req, res) => {
     $or: [{ assignedTo: req.params.id }, { createdBy: req.params.id }],
     isDeleted: false
   })
+    .populate('quotations', 'quotationNo totalAmount status createdAt')
     .sort({ updatedAt: -1 })
     .limit(20)
     .lean();

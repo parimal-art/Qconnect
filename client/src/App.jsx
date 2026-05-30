@@ -35,6 +35,8 @@ import ReportsPage from './pages/ReportsPage';
 import NotificationsPage from './pages/NotificationsPage';
 import BreakLeavePage from './pages/BreakLeavePage';
 import ProfilePage from './pages/ProfilePage';
+import TargetsPage from './pages/TargetsPage';
+import QuotationsPage from './pages/QuotationsPage';
 
 function HomeRedirect() {
   const { user } = useSelector(state => state.auth);
@@ -118,6 +120,8 @@ export default function App() {
             <Route path="/notifications" element={<NotificationsPage />} />
             <Route path="/break-leave" element={<BreakLeavePage />} />
             <Route path="/profile" element={<ProfilePage />} />
+            <Route path="/targets" element={<TargetsPage />} />
+            <Route path="/quotations" element={<QuotationsPage />} />
           </Route>
         </Route>
 
