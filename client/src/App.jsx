@@ -50,9 +50,10 @@ export default function App() {
   const [sessionChecked, setSessionChecked] = useState(false);
 
   useEffect(() => {
+    const currentPath = window.location.pathname;
     const wasAppClosed = shouldLogoutBecauseAppWasClosed();
 
-    if (wasAppClosed) {
+    if (wasAppClosed || currentPath === '/login') {
       clearToken();
       clearPendingAppClose();
       setSessionChecked(true);
@@ -74,7 +75,11 @@ export default function App() {
   }, [dispatch]);
 
   if (!sessionChecked) {
-    return null;
+    return (
+      <div className="grid min-h-screen place-items-center bg-slate-50 text-sm font-medium text-slate-600">
+        Opening login...
+      </div>
+    );
   }
 
   return (
@@ -130,3 +135,6 @@ export default function App() {
     </BrowserRouter>
   );
 }
+
+
+

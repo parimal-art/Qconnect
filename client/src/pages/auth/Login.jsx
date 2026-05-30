@@ -36,7 +36,8 @@ export default function Login() {
       <div className="flex items-center justify-center p-6">
         <form onSubmit={handleSubmit(onSubmit)} className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-8 shadow-2xl">
           <h2 className="text-2xl font-bold">Login</h2>
-          <p className="mt-1 text-sm text-slate-500">Use the seed credentials or your employee account.</p>
+          <p className="mt-1 text-sm text-slate-500">Use your employee account credentials.</p>
+          {location.state?.notice && <div className="mt-4 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-700">{location.state.notice}</div>}
           {error && <div className="mt-4 rounded-xl bg-rose-50 p-3 text-sm text-rose-700">{error}</div>}
           <div className="mt-6 space-y-4">
             <label className="block text-sm font-medium">Email<input className="input mt-1" {...register('email')} /></label>
@@ -57,3 +58,6 @@ export default function Login() {
     </div>
   );
 }
+
+
+

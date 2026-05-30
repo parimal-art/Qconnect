@@ -17,20 +17,42 @@ let refreshPromise = null;
 api.interceptors.response.use(
   response => response,
   async error => {
-    const original = error.config;
-    if (error.response?.status === 401 && !original?._retry && !String(original?.url || '').includes('/auth/login')) {
+    const original = error.config || {};
+    const url = String(original.url || '');
+    const isLoginRequest = url.includes('/auth/login');
+    const isRefreshRequest = url.includes('/auth/refresh-token');
+    const isChangePasswordRequest = url.includes('/auth/change-password');
+
+    if (
+      error.response?.status === 401 &&
+      !original._retry &&
+      !isLoginRequest &&
+      !isRefreshRequest &&
+      !isChangePasswordRequest
+    ) {
       original._retry = true;
-      refreshPromise = refreshPromise || api.post('/auth/refresh-token').finally(() => { refreshPromise = null; });
+      refreshPromise = refreshPromise || api.post('/auth/refresh-token').finally(() => {
+        refreshPromise = null;
+      });
+
       try {
         const { data } = await refreshPromise;
         if (data.accessToken) setToken(data.accessToken);
+        original.headers = original.headers || {};
         original.headers.Authorization = `Bearer ${data.accessToken}`;
         return api(original);
       } catch (refreshError) {
         clearToken();
-        window.location.href = '/login';
+        window.location.replace('/login');
+        return Promise.reject(refreshError);
       }
     }
+
+    if (error.response?.status === 401 && isRefreshRequest) {
+      clearToken();
+      window.location.replace('/login');
+    }
+
     return Promise.reject(error);
   }
 );

@@ -6,6 +6,7 @@ const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { createEmployee } = require('../services/userService');
 const { notifyMany, notifyUser } = require('../services/notificationService');
+const { uploadToCloudinary } = require('../config/cloudinary');
 const { buildChildQuery, canAccessUser, getAccessibleUserIds } = require('../middleware/rbac');
 const { ROLES, ACTIVITY_STATES } = require('../constants/roles');
 const { startOfDay, endOfDay, formatDuration, splitDurationByShift } = require('../utils/time');
@@ -150,33 +151,68 @@ const sendProfileReviewNotification = async ({ req, employee, reason }) => {
   });
 };
 
-const appendUploadedProfileFiles = ({ user, files = [], body = {}, actorId }) => {
+const normalizeUploadedFiles = files => {
+  if (!files) return [];
+  if (Array.isArray(files)) return files;
+
+  return Object.values(files).flat().filter(Boolean);
+};
+
+const buildEmployeeUploadFolder = user => {
+  const safeEmployeeId = String(user.employeeId || user._id || 'employee').replace(/[^a-zA-Z0-9_-]/g, '_');
+  return `crm-employee-tracker/employees/${safeEmployeeId}`;
+};
+
+const buildAssetPayload = (asset, file) => ({
+  url: asset?.secureUrl,
+  cloudinaryPublicId: asset?.publicId,
+  cloudinaryResourceType: asset?.resourceType,
+  mimeType: file.mimetype,
+  originalName: file.originalname,
+  size: file.size
+});
+
+const appendUploadedProfileFiles = async ({ user, files = [], body = {}, actorId }) => {
   const documentNames = parseJsonArray(body.documentNames);
+  user.documents = user.documents || [];
+  const uploadedFiles = normalizeUploadedFiles(files);
+  const folder = buildEmployeeUploadFolder(user);
   let otherDocumentIndex = 0;
 
-  files.forEach(file => {
-    const url = `/uploads/${file.filename}`;
+  for (const file of uploadedFiles) {
+    const asset = await uploadToCloudinary(file, folder);
+    const assetPayload = buildAssetPayload(asset, file);
+
+    if (!assetPayload.url) continue;
 
     if (file.fieldname === 'profilePhoto') {
-      user.profilePhoto = url;
-      return;
+      user.profilePhoto = assetPayload.url;
+      user.profilePhotoPublicId = assetPayload.cloudinaryPublicId;
+      continue;
     }
 
     if (file.fieldname === 'aadhaarCard') {
-      user.aadhaarCard = url;
-      return;
+      user.aadhaarCard = assetPayload.url;
+      user.aadhaarCardPublicId = assetPayload.cloudinaryPublicId;
+      continue;
     }
 
     if (file.fieldname === 'previousCompanyPayslip') {
-      user.previousCompanyPayslip = url;
+      user.previousCompanyPayslip = assetPayload.url;
+      user.previousCompanyPayslipPublicId = assetPayload.cloudinaryPublicId;
+      continue;
     }
 
     if (file.fieldname === 'experienceLetter') {
-      user.experienceLetter = url;
+      user.experienceLetter = assetPayload.url;
+      user.experienceLetterPublicId = assetPayload.cloudinaryPublicId;
+      continue;
     }
 
-    if (file.fieldname === 'panCard') {
-      user.panCard = url;
+    if (file.fieldname === 'panCardFile') {
+      user.panCardFile = assetPayload.url;
+      user.panCardFilePublicId = assetPayload.cloudinaryPublicId;
+      continue;
     }
 
     if (file.fieldname === 'otherDocuments' || file.fieldname.startsWith('otherDocuments')) {
@@ -186,14 +222,18 @@ const appendUploadedProfileFiles = ({ user, files = [], body = {}, actorId }) =>
       user.documents.push({
         documentName: name,
         label: name,
-        url,
-        mimeType: file.mimetype,
-        originalName: file.originalname,
+        url: assetPayload.url,
+        cloudinaryPublicId: assetPayload.cloudinaryPublicId,
+        cloudinaryResourceType: assetPayload.cloudinaryResourceType,
+        mimeType: assetPayload.mimeType,
+        originalName: assetPayload.originalName,
+        size: assetPayload.size,
         uploadedBy: actorId,
+        uploadedAt: new Date(),
         status: 'pending_review'
       });
     }
-  });
+  }
 
   const existingDocs = parseJsonArray(body.documents);
   existingDocs.forEach(doc => {
@@ -202,8 +242,11 @@ const appendUploadedProfileFiles = ({ user, files = [], body = {}, actorId }) =>
       documentName: doc.documentName || doc.label || 'Document',
       label: doc.label || doc.documentName || 'Document',
       url: doc.url,
+      cloudinaryPublicId: doc.cloudinaryPublicId,
+      cloudinaryResourceType: doc.cloudinaryResourceType,
       mimeType: doc.mimeType,
       uploadedBy: actorId,
+      uploadedAt: new Date(),
       status: 'pending_review'
     });
   });
@@ -601,7 +644,7 @@ const completeProfile = asyncHandler(async (req, res) => {
   }
 
   Object.assign(user, normalizedBody);
-  appendUploadedProfileFiles({ user, files: req.files || [], body: req.body, actorId: req.user._id });
+  await appendUploadedProfileFiles({ user, files: req.files || [], body: req.body, actorId: req.user._id });
 
   user.calculateProfileCompletion();
   markProfilePendingReview(user);
@@ -647,3 +690,6 @@ module.exports = {
   completeProfile,
   userActivity
 };
+
+
+

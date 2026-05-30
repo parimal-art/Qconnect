@@ -59,7 +59,6 @@ const navByRole = {
     ['Targets', '/targets', Target],
     ['Quotations', '/quotations', FileText],
     ['Break/Leave', '/break-leave', CalendarCheck],
-    ['Profile', '/profile', UserCircle],
     ['Notifications', '/notifications', Bell]
   ]
 };
@@ -72,6 +71,7 @@ export default function Layout() {
   useActivityTracker(Boolean(user));
 
   const nav = navByRole[user?.role] || [];
+  const mobileNav = [...nav.filter(([label]) => label !== 'Profile').slice(0, 4), ['Profile', '/profile', UserCircle]];
 
   const onLogout = async () => {
     await dispatch(logout());
@@ -80,7 +80,7 @@ export default function Layout() {
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
-      <aside className="fixed inset-y-0 left-0 z-10 hidden w-72 border-r border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900 lg:block">
+      <aside className="fixed inset-y-0 left-0 z-10 hidden w-72 flex-col border-r border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900 lg:flex">
         <div className="mb-8 flex items-center gap-3">
           <div className="grid h-11 w-11 place-items-center rounded-2xl bg-blue-600 font-bold text-white">
             CRM
@@ -91,7 +91,7 @@ export default function Layout() {
           </div>
         </div>
 
-        <nav className="space-y-1">
+        <nav className="flex-1 space-y-1 overflow-y-auto pb-4">
           {nav.map(([label, to, Icon]) => (
             <NavLink
               key={to}
@@ -110,6 +110,27 @@ export default function Layout() {
             </NavLink>
           ))}
         </nav>
+
+        <div className="border-t border-slate-200 pt-4 dark:border-slate-800">
+          <NavLink
+            to="/profile"
+            className={({ isActive }) =>
+              `mb-2 flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium ${
+                isActive
+                  ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/40'
+                  : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
+              }`
+            }
+          >
+            <UserCircle size={18} />
+            My Profile
+          </NavLink>
+
+          <button onClick={onLogout} className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30">
+            <LogOut size={18} />
+            Logout
+          </button>
+        </div>
       </aside>
 
       <main className="lg:pl-72">
@@ -126,7 +147,7 @@ export default function Layout() {
 
           <div className="flex items-center gap-3">
             <NotificationBell />
-            <button onClick={onLogout} className="btn-secondary flex items-center gap-2">
+            <button onClick={onLogout} className="btn-secondary flex items-center gap-2 lg:hidden">
               <LogOut size={16} />
               Logout
             </button>
@@ -139,7 +160,7 @@ export default function Layout() {
       </main>
 
       <nav className="fixed bottom-0 left-0 right-0 z-20 grid grid-cols-5 border-t border-slate-200 bg-white p-1 dark:border-slate-800 dark:bg-slate-900 lg:hidden">
-        {nav.slice(0, 5).map(([label, to, Icon]) => (
+        {mobileNav.map(([label, to, Icon]) => (
           <NavLink
             key={to}
             to={to}
@@ -157,3 +178,6 @@ export default function Layout() {
     </div>
   );
 }
+
+
+

@@ -26,7 +26,21 @@ const formatDuration = ms => {
   return `${hours}h ${minutes}m`;
 };
 
+const genderOptions = ['Male', 'Female', 'Other', 'Prefer not to say'];
+
 const newOtherDocument = () => ({ documentName: '', file: null, id: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}` });
+
+const buildEditableProfileForm = profile => ({
+  name: profile?.name || '',
+  phone: profile?.phone || '',
+  address: profile?.address || '',
+  emergencyContactNumber: profile?.emergencyContactNumber || '',
+  dateOfBirth: profile?.dateOfBirth ? String(profile.dateOfBirth).slice(0, 10) : '',
+  gender: genderOptions.includes(profile?.gender) ? profile.gender : '',
+  joiningDate: profile?.joiningDate ? String(profile.joiningDate).slice(0, 10) : '',
+  previousCompanyName: profile?.previousCompanyName || '',
+  panCard: profile?.panCard || ''
+});
 
 export default function ProfilePage() {
   const { id } = useParams();
@@ -45,8 +59,8 @@ export default function ProfilePage() {
   const [targetForm, setTargetForm] = useState({ amount: '', notes: '', periodStart: '', periodEnd: '' });
   const [assigningTarget, setAssigningTarget] = useState(false);
 
-  const [profileForm, setProfileForm] = useState({ phone: '', address: '', emergencyContactNumber: '' });
-  const [files, setFiles] = useState({ profilePhoto: null, aadhaarCard: null });
+  const [profileForm, setProfileForm] = useState(() => buildEditableProfileForm(loggedInUser));
+  const [files, setFiles] = useState({ profilePhoto: null, aadhaarCard: null, previousCompanyPayslip: null, experienceLetter: null });
   const [otherDocuments, setOtherDocuments] = useState([newOtherDocument()]);
   const [updatingProfile, setUpdatingProfile] = useState(false);
 
@@ -57,11 +71,7 @@ export default function ProfilePage() {
   const loadProfile = async () => {
     if (!id) {
       setProfile(loggedInUser);
-      setProfileForm({
-        phone: loggedInUser?.phone || '',
-        address: loggedInUser?.address || '',
-        emergencyContactNumber: loggedInUser?.emergencyContactNumber || ''
-      });
+      setProfileForm(buildEditableProfileForm(loggedInUser));
       setLoading(false);
       return;
     }
@@ -95,11 +105,7 @@ export default function ProfilePage() {
 
   useEffect(() => {
     if (!profile || !isOwnProfile) return;
-    setProfileForm({
-      phone: profile.phone || '',
-      address: profile.address || '',
-      emergencyContactNumber: profile.emergencyContactNumber || ''
-    });
+    setProfileForm(buildEditableProfileForm(profile));
   }, [profile, isOwnProfile]);
 
   const canAssignTarget = useMemo(() => {
@@ -214,7 +220,7 @@ export default function ProfilePage() {
       setProfile(data.user);
       dispatch(setUser({ ...loggedInUser, ...data.user }));
       setMessage('Profile changes submitted. HR/Admin will reverify your documents.');
-      setFiles({ profilePhoto: null, aadhaarCard: null });
+      setFiles({ profilePhoto: null, aadhaarCard: null, previousCompanyPayslip: null, experienceLetter: null });
       setOtherDocuments([newOtherDocument()]);
     } catch (err) {
       setError(err.response?.data?.message || 'Profile update failed.');
@@ -275,6 +281,7 @@ export default function ProfilePage() {
           <p><b>Online Status:</b> {profile.onlineStatus || 'offline'}</p>
           <p><b>Activity:</b> {profile.currentActivityState || 'Offline'}</p>
           <p><b>Date of Birth:</b> {formatDate(profile.dateOfBirth)}</p>
+          <p><b>Gender:</b> {profile.gender || '—'}</p>
           <p><b>Emergency Contact:</b> {profile.emergencyContactNumber || '—'}</p>
           <p><b>Previous Company:</b> {profile.previousCompanyName || '—'}</p>
           <p><b>PAN:</b> {profile.panCard || '—'}</p>
@@ -357,11 +364,19 @@ export default function ProfilePage() {
           <h2 className="text-xl font-bold">Update my profile/documents</h2>
           <p className="text-sm text-slate-500">Any profile or document change will notify HR/Admin for re-verification.</p>
           <div className="grid gap-3 md:grid-cols-3">
+            <input className="input" value={profileForm.name} onChange={event => setProfileForm(current => ({ ...current, name: event.target.value }))} placeholder="Full name" />
             <input className="input" value={profileForm.phone} onChange={event => setProfileForm(current => ({ ...current, phone: event.target.value }))} placeholder="Phone" />
-            <input className="input" value={profileForm.address} onChange={event => setProfileForm(current => ({ ...current, address: event.target.value }))} placeholder="Address" />
             <input className="input" value={profileForm.emergencyContactNumber} onChange={event => setProfileForm(current => ({ ...current, emergencyContactNumber: event.target.value }))} placeholder="Emergency contact" />
+            <input className="input md:col-span-3" value={profileForm.address} onChange={event => setProfileForm(current => ({ ...current, address: event.target.value }))} placeholder="Address" />
+            <label className="text-sm font-medium">Date of birth<input className="input mt-1" type="date" value={profileForm.dateOfBirth} onChange={event => setProfileForm(current => ({ ...current, dateOfBirth: event.target.value }))} /></label>
+            <label className="text-sm font-medium">Gender<select className="input mt-1" value={profileForm.gender} onChange={event => setProfileForm(current => ({ ...current, gender: event.target.value }))}><option value="">Select gender</option>{genderOptions.map(option => <option key={option} value={option}>{option}</option>)}</select></label>
+            <label className="text-sm font-medium">Joining date<input className="input mt-1" type="date" value={profileForm.joiningDate} onChange={event => setProfileForm(current => ({ ...current, joiningDate: event.target.value }))} /></label>
+            <input className="input" value={profileForm.previousCompanyName} onChange={event => setProfileForm(current => ({ ...current, previousCompanyName: event.target.value }))} placeholder="Previous company name" />
+            <input className="input" value={profileForm.panCard} onChange={event => setProfileForm(current => ({ ...current, panCard: event.target.value }))} placeholder="PAN card number" />
             <label className="text-sm font-medium">Profile photo<input className="input mt-1" type="file" accept="image/jpeg,image/png,image/webp" onChange={event => setFiles(current => ({ ...current, profilePhoto: event.target.files?.[0] || null }))} /></label>
             <label className="text-sm font-medium">Aadhaar card<input className="input mt-1" type="file" accept="image/jpeg,image/png,image/webp,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={event => setFiles(current => ({ ...current, aadhaarCard: event.target.files?.[0] || null }))} /></label>
+            <label className="text-sm font-medium">Previous company payslip<input className="input mt-1" type="file" accept="image/jpeg,image/png,image/webp,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={event => setFiles(current => ({ ...current, previousCompanyPayslip: event.target.files?.[0] || null }))} /></label>
+            <label className="text-sm font-medium">Experience letter<input className="input mt-1" type="file" accept="image/jpeg,image/png,image/webp,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={event => setFiles(current => ({ ...current, experienceLetter: event.target.files?.[0] || null }))} /></label>
           </div>
 
           <div className="space-y-3">
@@ -401,3 +416,6 @@ export default function ProfilePage() {
     </div>
   );
 }
+
+
+
