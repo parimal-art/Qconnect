@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSelector } from 'react-redux';
 import { Link } from 'react-router-dom';
+
 import api from '../lib/api';
 import DataTable from '../components/DataTable';
 import StatusBadge from '../components/StatusBadge';
@@ -58,6 +59,65 @@ const actionOptions = [
   'Close lead'
 ];
 
+const normalizeText = value =>
+  String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ');
+
+const normalizePipeline = value => {
+  const normalized = normalizeText(value);
+
+  const aliases = {
+    new: 'new lead',
+    pending: 'new lead',
+    followup: 'follow up',
+    'follow up': 'follow up',
+    'follow-up': 'follow up',
+    demo: 'demo scheduled',
+    demoed: 'demo scheduled',
+    negotiation: 'negotiation',
+    won: 'won',
+    win: 'won',
+    completed: 'won',
+    lost: 'lost',
+    loss: 'lost'
+  };
+
+  return aliases[normalized] || normalized;
+};
+
+const normalizeLeadType = value => {
+  const normalized = normalizeText(value);
+
+  const aliases = {
+    hot: 'hot lead',
+    mid: 'mid lead',
+    medium: 'mid lead',
+    cold: 'cold lead'
+  };
+
+  return aliases[normalized] || normalized;
+};
+
+const matchesFilter = (actualValue, filterValue, normalizer = normalizeText) => {
+  if (!filterValue || filterValue === 'all') return true;
+  return normalizer(actualValue) === normalizer(filterValue);
+};
+
+const getAssignedToId = lead => {
+  if (!lead?.assignedTo) return '';
+  if (typeof lead.assignedTo === 'string') return lead.assignedTo;
+  return lead.assignedTo._id || '';
+};
+
+const getAssignedToName = lead => {
+  if (!lead?.assignedTo) return 'Unassigned';
+  if (typeof lead.assignedTo === 'string') return 'Assigned';
+  return lead.assignedTo.name || lead.assignedTo.email || 'Assigned';
+};
+
 const toDateTimeLocal = value => {
   if (!value) return '';
 
@@ -76,11 +136,14 @@ export default function LeadsPage() {
   const [leads, setLeads] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [form, setForm] = useState(leadInitial);
+
   const [query, setQuery] = useState('');
   const [view, setView] = useState('table');
+
   const [completedFilter, setCompletedFilter] = useState('all');
   const [leadTypeFilter, setLeadTypeFilter] = useState('all');
   const [pipelineFilter, setPipelineFilter] = useState('all');
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -96,21 +159,50 @@ export default function LeadsPage() {
   );
 
   const visibleLeads = useMemo(() => {
+    const searchText = normalizeText(query);
+
     return leads.filter(lead => {
       const completedOk =
         completedFilter === 'all' ||
-        (completedFilter === 'completed' && lead.isCompleted) ||
+        (completedFilter === 'completed' && Boolean(lead.isCompleted)) ||
         (completedFilter === 'pending' && !lead.isCompleted);
 
-      const leadTypeOk =
-        leadTypeFilter === 'all' || lead.leadType === leadTypeFilter;
+      const leadTypeOk = matchesFilter(
+        lead.leadType || 'Cold Lead',
+        leadTypeFilter,
+        normalizeLeadType
+      );
 
-      const pipelineOk =
-        pipelineFilter === 'all' || lead.pipelineStatus === pipelineFilter;
+      const pipelineOk = matchesFilter(
+        lead.pipelineStatus || 'New Lead',
+        pipelineFilter,
+        normalizePipeline
+      );
 
-      return completedOk && leadTypeOk && pipelineOk;
+      const searchOk =
+        !searchText ||
+        [
+          lead.name,
+          lead.companyName,
+          lead.contactNumber,
+          lead.email,
+          lead.website,
+          lead.domain,
+          lead.source,
+          lead.leadType,
+          lead.pipelineStatus,
+          lead.callStatus,
+          lead.actionRequired,
+          lead.remarks,
+          getAssignedToName(lead)
+        ]
+          .map(normalizeText)
+          .join(' ')
+          .includes(searchText);
+
+      return completedOk && leadTypeOk && pipelineOk && searchOk;
     });
-  }, [leads, completedFilter, leadTypeFilter, pipelineFilter]);
+  }, [leads, query, completedFilter, leadTypeFilter, pipelineFilter]);
 
   const load = async () => {
     setLoading(true);
@@ -120,12 +212,12 @@ export default function LeadsPage() {
       const [leadResponse, userResponse] = await Promise.all([
         api.get('/leads?limit=100'),
         api.get('/users/children').catch(() => ({
-          data: { users: [] }
+          data: { users: [], data: [] }
         }))
       ]);
 
-      setLeads(leadResponse.data.leads || []);
-      setEmployees(userResponse.data.users || []);
+      setLeads(leadResponse.data.leads || leadResponse.data.data || []);
+      setEmployees(userResponse.data.users || userResponse.data.data || []);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load leads.');
     } finally {
@@ -163,11 +255,11 @@ export default function LeadsPage() {
   };
 
   const buildAfterCallPayload = lead => ({
-    leadType: lead.leadType,
-    pipelineStatus: lead.pipelineStatus,
-    callStatus: lead.callStatus,
-    actionRequired: lead.actionRequired,
-    remarks: lead.remarks,
+    leadType: lead.leadType || 'Cold Lead',
+    pipelineStatus: lead.pipelineStatus || 'New Lead',
+    callStatus: lead.callStatus || undefined,
+    actionRequired: lead.actionRequired || 'Follow-up',
+    remarks: lead.remarks || '',
     followUpDate: lead.followUpDate ? new Date(lead.followUpDate) : undefined
   });
 
@@ -278,7 +370,7 @@ export default function LeadsPage() {
     try {
       await api.put(`/leads/${lead._id}/complete`, {
         ...buildAfterCallPayload(lead),
-        pipelineStatus: lead.pipelineStatus === 'Lost' ? 'Lost' : 'Won'
+        pipelineStatus: normalizePipeline(lead.pipelineStatus) === 'lost' ? 'Lost' : 'Won'
       });
 
       setMessage('Lead marked as completed.');
@@ -288,22 +380,11 @@ export default function LeadsPage() {
     }
   };
 
-  const search = async event => {
-    const value = event.target.value;
-
-    setQuery(value);
-
-    if (value.trim().length <= 1) {
-      await load();
-      return;
-    }
-
-    try {
-      const { data } = await api.get(`/leads/search?q=${encodeURIComponent(value)}`);
-      setLeads(data.leads || []);
-    } catch (err) {
-      setError(err.response?.data?.message || 'Search failed.');
-    }
+  const clearFilters = () => {
+    setQuery('');
+    setCompletedFilter('all');
+    setLeadTypeFilter('all');
+    setPipelineFilter('all');
   };
 
   const managerColumns = [
@@ -366,17 +447,20 @@ export default function LeadsPage() {
     {
       key: 'assignedTo',
       header: 'Assigned To',
-      render: lead =>
-        lead.assignedTo?._id ? (
+      render: lead => {
+        const assignedToId = getAssignedToId(lead);
+
+        return assignedToId ? (
           <Link
-            to={`/employees/${lead.assignedTo._id}`}
+            to={`/employees/${assignedToId}`}
             className="font-semibold text-blue-600 hover:underline"
           >
-            {lead.assignedTo.name || lead.assignedTo.email}
+            {getAssignedToName(lead)}
           </Link>
         ) : (
           'Unassigned'
-        )
+        );
+      }
     },
     {
       key: 'isCompleted',
@@ -563,19 +647,30 @@ export default function LeadsPage() {
               ? 'Update only after-call data for your assigned or self-generated leads.'
               : 'Generate, assign, upload, and view pending/completed leads. After-call updates are salesperson-only.'}
           </p>
+          <p className="mt-1 text-xs text-slate-400">
+            Showing {visibleLeads.length} of {leads.length} leads
+          </p>
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={() => setView('table')} className="btn-secondary">
+          <button
+            type="button"
+            onClick={() => setView('table')}
+            className={view === 'table' ? 'btn-primary' : 'btn-secondary'}
+          >
             Table
           </button>
 
-          <button type="button" onClick={() => setView('kanban')} className="btn-secondary">
+          <button
+            type="button"
+            onClick={() => setView('kanban')}
+            className={view === 'kanban' ? 'btn-primary' : 'btn-secondary'}
+          >
             Kanban
           </button>
 
           <select
-            className="input w-40"
+            className="input w-44"
             value={completedFilter}
             onChange={event => setCompletedFilter(event.target.value)}
           >
@@ -585,7 +680,7 @@ export default function LeadsPage() {
           </select>
 
           <select
-            className="input w-40"
+            className="input w-44"
             value={leadTypeFilter}
             onChange={event => setLeadTypeFilter(event.target.value)}
           >
@@ -609,6 +704,14 @@ export default function LeadsPage() {
               </option>
             ))}
           </select>
+
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="btn-secondary"
+          >
+            Clear Filters
+          </button>
         </div>
       </div>
 
@@ -745,7 +848,7 @@ export default function LeadsPage() {
         className="input max-w-md"
         placeholder="Search leads by name, company, phone, email, website..."
         value={query}
-        onChange={search}
+        onChange={event => setQuery(event.target.value)}
       />
 
       {view === 'kanban' ? (
