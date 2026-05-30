@@ -7,6 +7,7 @@ const ApiError = require('../utils/ApiError');
 const { generateLeadId } = require('../utils/ids');
 const { buildDuplicateQuery, hydrateLeadNormalizers } = require('../utils/leadDuplicate');
 const { ROLES } = require('../constants/roles');
+const { canAccessUser } = require('../middleware/rbac');
 const { notifyUser } = require('./notificationService');
 
 const mapLeadRow = row => ({
@@ -41,6 +42,9 @@ const validateAssignment = async ({ actor, assignedTo }) => {
   if (!assignedTo) return null;
   const salesperson = await User.findOne({ _id: assignedTo, role: ROLES.SALESPERSON, isActive: true });
   if (!salesperson) throw new ApiError(400, 'Assigned salesperson not found');
+  if (actor.role === ROLES.ADMIN && !(await canAccessUser(actor, salesperson._id))) {
+    throw new ApiError(403, 'You can assign leads only to salespersons inside your admin scope');
+  }
   if (actor.role === ROLES.TEAM_LEADER && String(salesperson.assignedTeamLeader) !== String(actor._id)) {
     throw new ApiError(403, 'You can assign only your own salespersons');
   }

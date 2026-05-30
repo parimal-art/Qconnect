@@ -8,8 +8,9 @@ import StatusBadge from '../components/StatusBadge';
 import { LoadingState } from '../components/LoadingState';
 import { ROLES, roleLabel } from '../lib/roles';
 
-const roleOptions = [
+const buildRoleOptions = role => [
   { label: 'All roles', value: 'all' },
+  ...(role === ROLES.SUPER_ADMIN ? [{ label: 'Admin', value: ROLES.ADMIN }] : []),
   { label: 'HR', value: ROLES.HR },
   { label: 'Team Leader', value: ROLES.TEAM_LEADER },
   { label: 'Salesperson', value: ROLES.SALESPERSON }
@@ -36,7 +37,8 @@ export default function EmployeesPage() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
-  const canManageActiveStatus = [ROLES.ADMIN, ROLES.HR].includes(user?.role);
+  const roleOptions = useMemo(() => buildRoleOptions(user?.role), [user?.role]);
+  const canManageActiveStatus = [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR].includes(user?.role);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -80,7 +82,8 @@ export default function EmployeesPage() {
         employee.employeeId,
         employee.role,
         employee.assignedHR?.name,
-        employee.assignedTeamLeader?.name
+        employee.assignedTeamLeader?.name,
+        employee.createdBy?.name
       ]
         .join(' ')
         .toLowerCase()
@@ -133,7 +136,10 @@ export default function EmployeesPage() {
       key: 'parent',
       header: 'Parent',
       render: employee =>
-        employee.assignedTeamLeader?.name || employee.assignedHR?.name || 'Admin'
+        employee.assignedTeamLeader?.name ||
+        employee.assignedHR?.name ||
+        employee.createdBy?.name ||
+        (employee.role === ROLES.ADMIN ? 'Super Admin' : 'Admin')
     },
     {
       key: 'loginAccess',
@@ -170,7 +176,7 @@ export default function EmployeesPage() {
           <button
             type="button"
             onClick={() => toggleActiveStatus(employee)}
-            disabled={updatingId === employee._id}
+            disabled={updatingId === employee._id || String(employee._id) === String(user?.id)}
             className={`text-sm font-semibold ${
               employee.isActive ? 'text-rose-600' : 'text-emerald-600'
             } disabled:opacity-60`}
@@ -193,11 +199,11 @@ export default function EmployeesPage() {
         <div>
           <h1 className="text-2xl font-bold">Employees</h1>
           <p className="text-slate-500">
-            HR/Admin can view child employees, open profiles, download employee details and track document verification.
+            Super Admin can control all admins and employees. Admins can access only their own employee hierarchy.
           </p>
         </div>
 
-        {[ROLES.ADMIN, ROLES.HR].includes(user?.role) && (
+        {[ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR].includes(user?.role) && (
           <Link to="/employees/new" className="btn-primary w-fit">
             Generate Employee
           </Link>

@@ -2,6 +2,7 @@ const User = require('../models/User');
 const Lead = require('../models/Lead');
 
 const prefixByRole = {
+  SUPER_ADMIN: 'SA',
   ADMIN: 'ADM',
   HR: 'HR',
   TEAM_LEADER: 'TL',

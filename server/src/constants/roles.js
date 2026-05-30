@@ -1,4 +1,5 @@
 const ROLES = Object.freeze({
+  SUPER_ADMIN: 'SUPER_ADMIN',
   ADMIN: 'ADMIN',
   HR: 'HR',
   TEAM_LEADER: 'TEAM_LEADER',
@@ -6,6 +7,7 @@ const ROLES = Object.freeze({
 });
 
 const ROLE_LABELS = Object.freeze({
+  SUPER_ADMIN: 'Super Admin',
   ADMIN: 'Admin',
   HR: 'HR',
   TEAM_LEADER: 'Team Leader',

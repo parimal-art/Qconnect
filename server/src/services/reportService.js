@@ -3,9 +3,10 @@ const Lead = require('../models/Lead');
 const Attendance = require('../models/Attendance');
 const Leave = require('../models/Leave');
 const Break = require('../models/Break');
-const { getAccessibleUserIds, buildLeadAccessQuery } = require('../middleware/rbac');
+const { getAccessibleUserIds, buildLeadAccessQuery, canAccessUser } = require('../middleware/rbac');
 const { ROLES } = require('../constants/roles');
 const { startOfDay, endOfDay } = require('../utils/time');
+const ApiError = require('../utils/ApiError');
 
 const dateRange = query => {
   const from = query.from ? new Date(query.from) : startOfDay(new Date());
@@ -14,19 +15,14 @@ const dateRange = query => {
 };
 
 const dashboardReport = async (user, query = {}) => {
-  const ids = await getAccessibleUserIds(user);
+  const ids = await getAccessibleUserIds(user, { includeSelf: false });
   const leadQuery = await buildLeadAccessQuery(user);
   const today = { $gte: startOfDay(), $lte: endOfDay() };
 
-  const childIds =
-    user.role === ROLES.ADMIN
-      ? ids
-      : ids.filter(id => String(id) !== String(user._id));
-
   const employeeScope = {
-    _id: { $in: childIds },
+    _id: { $in: ids },
     isActive: true,
-    ...(user.role === ROLES.ADMIN ? { role: { $ne: ROLES.ADMIN } } : {})
+    ...(user.role !== ROLES.SUPER_ADMIN ? { role: { $ne: ROLES.SUPER_ADMIN } } : {})
   };
 
   const [roleCounts, statusCounts, leadCounts, attendanceTotals, bestSales, childEmployeeCount] = await Promise.all([
@@ -43,7 +39,7 @@ const dashboardReport = async (user, query = {}) => {
       { $group: { _id: { pipelineStatus: '$pipelineStatus', leadType: '$leadType', isCompleted: '$isCompleted' }, count: { $sum: 1 } } }
     ]),
     Attendance.aggregate([
-      { $match: { user: { $in: childIds }, date: today } },
+      { $match: { user: { $in: ids }, date: today } },
       { $group: {
         _id: null,
         totalActive: { $sum: '$activeTimeInsideShift' },
@@ -85,7 +81,18 @@ const leadsReport = async (user, query = {}) => {
 };
 
 const attendanceReport = async (user, query = {}) => {
-  const ids = query.employee ? [query.employee] : await getAccessibleUserIds(user);
+  let ids;
+
+  if (query.employee) {
+    if (!(await canAccessUser(user, query.employee))) {
+      throw new ApiError(403, 'You cannot access this employee attendance');
+    }
+
+    ids = [query.employee];
+  } else {
+    ids = await getAccessibleUserIds(user);
+  }
+
   const { from, to } = dateRange(query);
   return Attendance.find({ user: { $in: ids }, date: { $gte: startOfDay(from), $lte: endOfDay(to) } })
     .populate('user', 'name email employeeId role assignedHR assignedTeamLeader')

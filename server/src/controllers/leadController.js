@@ -8,7 +8,7 @@ const { hydrateLeadNormalizers, buildDuplicateQuery } = require('../utils/leadDu
 const { notifyUser, notifyMany } = require('../services/notificationService');
 const { ROLES } = require('../constants/roles');
 
-const MANAGEMENT_ROLES = [ROLES.ADMIN, ROLES.HR, ROLES.TEAM_LEADER];
+const MANAGEMENT_ROLES = [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR, ROLES.TEAM_LEADER];
 
 const MANAGER_EDIT_FIELDS = [
   'name',
@@ -59,8 +59,8 @@ const getLeadManagerRecipients = async lead => {
   if (assignedTo?.assignedHR) ids.push(assignedTo.assignedHR);
   if (lead.assignedBy) ids.push(lead.assignedBy);
 
-  const admins = await User.find({ role: ROLES.ADMIN, isActive: true }).select('_id').lean();
-  ids.push(...admins.map(admin => admin._id));
+  const superAdmins = await User.find({ role: ROLES.SUPER_ADMIN, isActive: true }).select('_id').lean();
+  ids.push(...superAdmins.map(admin => admin._id));
 
   return uniqueIds(ids);
 };
@@ -104,7 +104,7 @@ const upload = asyncHandler(async (req, res) => {
   }
 
   if (!MANAGEMENT_ROLES.includes(req.user.role)) {
-    throw new ApiError(403, 'Only Admin, HR, and Team Leader can upload leads');
+    throw new ApiError(403, 'Only Super Admin, Admin, HR, and Team Leader can upload leads');
   }
 
   const rows = parseLeadUpload(req.file);
@@ -384,7 +384,7 @@ const complete = asyncHandler(async (req, res) => {
 
 const finalizeDeal = asyncHandler(async (req, res) => {
   if (!MANAGEMENT_ROLES.includes(req.user.role)) {
-    throw new ApiError(403, 'Only Team Leader, HR, or Admin can finalize deal amount');
+    throw new ApiError(403, 'Only Team Leader, HR, Admin, or Super Admin can finalize deal amount');
   }
 
   if (!(await canAccessLead(req.user, req.params.id))) {
@@ -451,8 +451,8 @@ const remove = asyncHandler(async (req, res) => {
     throw new ApiError(404, 'Lead not found');
   }
 
-  if (req.user.role !== ROLES.ADMIN && req.user.role !== ROLES.TEAM_LEADER) {
-    throw new ApiError(403, 'Only Admin or Team Leader can delete leads');
+  if (![ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.TEAM_LEADER].includes(req.user.role)) {
+    throw new ApiError(403, 'Only Super Admin, Admin or Team Leader can delete leads');
   }
 
   if (!(await canAccessLead(req.user, req.params.id))) {

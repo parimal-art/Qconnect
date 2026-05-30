@@ -21,6 +21,7 @@ import ResetPassword from './pages/auth/ResetPassword';
 import ChangePassword from './pages/auth/ChangePassword';
 import CompleteProfile from './pages/auth/CompleteProfile';
 
+import SuperAdminDashboard from './pages/dashboard/SuperAdminDashboard';
 import AdminDashboard from './pages/dashboard/AdminDashboard';
 import HRDashboard from './pages/dashboard/HRDashboard';
 import TeamLeaderDashboard from './pages/dashboard/TeamLeaderDashboard';
@@ -99,6 +100,10 @@ export default function App() {
           <Route element={<Layout />}>
             <Route index element={<HomeRedirect />} />
 
+            <Route element={<RoleRoute roles={[ROLES.SUPER_ADMIN]} />}>
+              <Route path="/super-admin" element={<SuperAdminDashboard />} />
+            </Route>
+
             <Route element={<RoleRoute roles={[ROLES.ADMIN]} />}>
               <Route path="/admin" element={<AdminDashboard />} />
             </Route>
@@ -135,6 +140,3 @@ export default function App() {
     </BrowserRouter>
   );
 }
-
-
-

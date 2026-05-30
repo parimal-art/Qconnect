@@ -6,7 +6,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const { buildLeadAccessQuery, canAccessLead } = require('../middleware/rbac');
 const { ROLES } = require('../constants/roles');
 
-const MANAGEMENT_ROLES = [ROLES.ADMIN, ROLES.HR, ROLES.TEAM_LEADER];
+const MANAGEMENT_ROLES = [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR, ROLES.TEAM_LEADER];
 
 const defaultBenefits = [
   'Premium UI/UX crafted to deliver a modern brand experience.',
@@ -82,7 +82,7 @@ const normalizePayload = body => {
 
 const assertManagerAndLeadAccess = async (user, leadId) => {
   if (!MANAGEMENT_ROLES.includes(user.role)) {
-    throw new ApiError(403, 'Only Team Leader, HR, or Admin can manage quotations');
+    throw new ApiError(403, 'Only Team Leader, HR, Admin, or Super Admin can manage quotations');
   }
 
   if (!(await canAccessLead(user, leadId))) {

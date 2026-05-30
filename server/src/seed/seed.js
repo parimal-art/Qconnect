@@ -23,12 +23,33 @@ const seed = async () => {
     RefreshToken.deleteMany({})
   ]);
 
+  const superAdmin = await User.create({
+    name: 'Super Admin User',
+    email: 'superadmin@example.com',
+    password: 'Super@123',
+    role: ROLES.SUPER_ADMIN,
+    employeeId: 'SA-00001',
+    phone: '9000000000',
+    address: 'Head Office',
+    profilePhoto: '/uploads/default-admin.png',
+    aadhaarCard: '/uploads/default-aadhaar.pdf',
+    emergencyContactNumber: '9000000099',
+    dateOfBirth: new Date('1988-01-01'),
+    gender: 'Other',
+    joiningDate: new Date(),
+    firstLogin: false,
+    passwordChanged: true,
+    isVerified: true,
+    verificationStatus: 'verified'
+  });
+
   const admin = await User.create({
     name: 'Admin User',
     email: 'admin@example.com',
     password: 'Admin@123',
     role: ROLES.ADMIN,
     employeeId: 'ADM-00001',
+    createdBy: superAdmin._id,
     phone: '9000000001',
     address: 'Corporate Office',
     profilePhoto: '/uploads/default-admin.png',
@@ -39,7 +60,8 @@ const seed = async () => {
     joiningDate: new Date(),
     firstLogin: false,
     passwordChanged: true,
-    isVerified: true
+    isVerified: true,
+    verificationStatus: 'verified'
   });
 
   const hr = await User.create({
@@ -60,7 +82,8 @@ const seed = async () => {
     joiningDate: new Date(),
     firstLogin: false,
     passwordChanged: true,
-    isVerified: true
+    isVerified: true,
+    verificationStatus: 'verified'
   });
 
   const tl = await User.create({
@@ -82,7 +105,8 @@ const seed = async () => {
     joiningDate: new Date(),
     firstLogin: false,
     passwordChanged: true,
-    isVerified: true
+    isVerified: true,
+    verificationStatus: 'verified'
   });
 
   const sales = await User.create({
@@ -104,10 +128,11 @@ const seed = async () => {
     joiningDate: new Date(),
     firstLogin: false,
     passwordChanged: true,
-    isVerified: true
+    isVerified: true,
+    verificationStatus: 'verified'
   });
 
-  for (const u of [admin, hr, tl, sales]) {
+  for (const u of [superAdmin, admin, hr, tl, sales]) {
     u.calculateProfileCompletion();
     await u.save();
   }
@@ -117,6 +142,7 @@ const seed = async () => {
 
   console.log('Seed completed');
   console.table([
+    { role: 'Super Admin', email: 'superadmin@example.com', password: 'Super@123' },
     { role: 'Admin', email: 'admin@example.com', password: 'Admin@123' },
     { role: 'HR', email: 'hr@example.com', password: 'Hr@123' },
     { role: 'Team Leader', email: 'tl@example.com', password: 'Tl@123' },

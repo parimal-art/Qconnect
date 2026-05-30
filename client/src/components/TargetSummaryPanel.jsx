@@ -89,10 +89,10 @@ export default function TargetSummaryPanel({ userId, title = 'Sales target summa
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <DashboardCard title="Assigned Target" value={money(summary.assignedTarget)} icon={Target} />
-        <DashboardCard title="Distributed Target" value={money(summary.distributedTarget)} icon={WalletCards} />
-        <DashboardCard title="Completed Sales" value={money(summary.completedTarget)} icon={TrendingUp} />
-        <DashboardCard title="Coverage" value={`${summary.completionPercentage || 0}%`} icon={TrendingUp} footer={`Remaining ${money(summary.remainingTarget)}`} />
+        <DashboardCard title="Assigned Target" value={money(summary.assignedTarget)} icon={Target} color="blue" />
+        <DashboardCard title="Distributed Target" value={money(summary.distributedTarget)} icon={WalletCards} color="amber" />
+        <DashboardCard title="Completed Sales" value={money(summary.completedTarget)} icon={TrendingUp} color="emerald" />
+        <DashboardCard title="Coverage" value={`${summary.completionPercentage || 0}%`} icon={TrendingUp} color="violet" footer={`Remaining ${money(summary.remainingTarget)}`} />
       </div>
 
       {!compact && (

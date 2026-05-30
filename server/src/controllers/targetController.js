@@ -29,8 +29,26 @@ const buildOverlapQuery = (start, end) => ({
   status: 'active'
 });
 
-const assertCanAssignTarget = (actor, assignee) => {
-  if (actor.role === ROLES.ADMIN) return true;
+const assertCanAssignTarget = async (actor, assignee) => {
+  if (actor.role === ROLES.SUPER_ADMIN) {
+    if ([ROLES.SUPER_ADMIN, ROLES.ADMIN].includes(assignee.role)) {
+      throw new ApiError(403, 'Sales targets can be assigned only to HR, Team Leaders, or Salespersons');
+    }
+
+    return true;
+  }
+
+  if (actor.role === ROLES.ADMIN) {
+    if ([ROLES.SUPER_ADMIN, ROLES.ADMIN].includes(assignee.role)) {
+      throw new ApiError(403, 'Admin cannot assign targets to Admin or Super Admin accounts');
+    }
+
+    if (!(await canAccessUser(actor, assignee._id))) {
+      throw new ApiError(403, 'You can assign target only inside your admin scope');
+    }
+
+    return true;
+  }
 
   if (actor.role === ROLES.HR) {
     if (assignee.role !== ROLES.TEAM_LEADER) {
@@ -58,6 +76,17 @@ const assertCanAssignTarget = (actor, assignee) => {
 const getSalespersonIdsForUser = async user => {
   if (user.role === ROLES.SALESPERSON) return [user._id];
 
+  if (user.role === ROLES.SUPER_ADMIN) {
+    const salespersons = await User.find({ role: ROLES.SALESPERSON, isActive: true }).select('_id').lean();
+    return salespersons.map(salesperson => salesperson._id);
+  }
+
+  if (user.role === ROLES.ADMIN) {
+    const ids = await getAccessibleUserIds(user);
+    const salespersons = await User.find({ _id: { $in: ids }, role: ROLES.SALESPERSON, isActive: true }).select('_id').lean();
+    return salespersons.map(salesperson => salesperson._id);
+  }
+
   if (user.role === ROLES.TEAM_LEADER) {
     const salespersons = await User.find({ role: ROLES.SALESPERSON, assignedTeamLeader: user._id, isActive: true })
       .select('_id')
@@ -72,10 +101,7 @@ const getSalespersonIdsForUser = async user => {
     return salespersons.map(salesperson => salesperson._id);
   }
 
-  const salespersons = await User.find({ role: ROLES.SALESPERSON, isActive: true })
-    .select('_id')
-    .lean();
-  return salespersons.map(salesperson => salesperson._id);
+  return [];
 };
 
 const getCompletedSalesAmount = async ({ user, start, end }) => {
@@ -161,8 +187,8 @@ const listTeamTargets = asyncHandler(async (req, res) => {
 
   let query = overlap;
 
-  if (req.user.role !== ROLES.ADMIN) {
-    const ids = await getAccessibleUserIds(req.user);
+  if (req.user.role !== ROLES.SUPER_ADMIN) {
+    const ids = await getAccessibleUserIds(req.user, { includeInactive: true });
     query = {
       ...overlap,
       $or: [{ assignedTo: { $in: ids } }, { assignedBy: { $in: ids } }]
@@ -188,7 +214,7 @@ const assignTarget = asyncHandler(async (req, res) => {
   const assignee = await User.findById(req.body.assignedTo).lean();
   if (!assignee || !assignee.isActive) throw new ApiError(404, 'Active employee not found');
 
-  assertCanAssignTarget(req.user, assignee);
+  await assertCanAssignTarget(req.user, assignee);
 
   const target = await Target.create({
     assignedTo: assignee._id,
@@ -217,8 +243,9 @@ const updateTarget = asyncHandler(async (req, res) => {
 
   const assignee = target.assignedTo;
   const canEdit =
-    req.user.role === ROLES.ADMIN ||
+    req.user.role === ROLES.SUPER_ADMIN ||
     sameId(target.assignedBy, req.user._id) ||
+    (req.user.role === ROLES.ADMIN && (await canAccessUser(req.user, assignee._id))) ||
     (req.user.role === ROLES.HR && sameId(assignee.assignedHR, req.user._id)) ||
     (req.user.role === ROLES.TEAM_LEADER && sameId(assignee.assignedTeamLeader, req.user._id));
 

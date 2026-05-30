@@ -67,7 +67,7 @@ export default function ProfilePage() {
 
   const targetId = id || loggedInUser?.id;
   const isOwnProfile = !id || String(id) === String(loggedInUser?.id);
-  const canVerify = [ROLES.ADMIN, ROLES.HR].includes(loggedInUser?.role) && !isOwnProfile;
+  const canVerify = [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR].includes(loggedInUser?.role) && !isOwnProfile;
 
   const loadProfile = async () => {
     if (!id) {
@@ -111,7 +111,8 @@ export default function ProfilePage() {
 
   const canAssignTarget = useMemo(() => {
     if (!profile) return false;
-    if (loggedInUser?.role === ROLES.ADMIN && profile.role !== ROLES.ADMIN) return true;
+    if (loggedInUser?.role === ROLES.SUPER_ADMIN && ![ROLES.SUPER_ADMIN, ROLES.ADMIN].includes(profile.role)) return true;
+    if (loggedInUser?.role === ROLES.ADMIN && ![ROLES.SUPER_ADMIN, ROLES.ADMIN].includes(profile.role)) return true;
     if (loggedInUser?.role === ROLES.HR && profile.role === ROLES.TEAM_LEADER) return true;
     if (loggedInUser?.role === ROLES.TEAM_LEADER && profile.role === ROLES.SALESPERSON) return true;
     return false;
@@ -240,7 +241,7 @@ export default function ProfilePage() {
     return <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center">Employee profile not found.</div>;
   }
 
-  const parentName = profile.assignedTeamLeader?.name || profile.assignedHR?.name || (profile.role === 'ADMIN' ? '—' : 'Admin');
+  const parentName = profile.assignedTeamLeader?.name || profile.assignedHR?.name || profile.createdBy?.name || (profile.role === ROLES.SUPER_ADMIN ? '—' : profile.role === ROLES.ADMIN ? 'Super Admin' : 'Admin');
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -337,7 +338,7 @@ export default function ProfilePage() {
 
       {canVerify && (
         <form onSubmit={verifyProfile} className="card space-y-4">
-          <h2 className="text-xl font-bold">HR/Admin verification</h2>
+          <h2 className="text-xl font-bold">Super Admin/HR/Admin verification</h2>
           <div className="grid gap-3 md:grid-cols-[220px_1fr_auto]">
             <select className="input" value={verification.status} onChange={event => setVerification(current => ({ ...current, status: event.target.value }))}>
               <option value="verified">Verify</option>
@@ -350,7 +351,7 @@ export default function ProfilePage() {
         </form>
       )}
 
-      {(profile.role === ROLES.TEAM_LEADER || profile.role === ROLES.SALESPERSON || isOwnProfile) && (
+      {([ROLES.HR, ROLES.TEAM_LEADER, ROLES.SALESPERSON].includes(profile.role) || (isOwnProfile && ![ROLES.SUPER_ADMIN, ROLES.ADMIN].includes(profile.role))) && (
         <TargetSummaryPanel userId={targetId} title="Target and sales performance" />
       )}
 

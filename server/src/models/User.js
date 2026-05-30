@@ -16,7 +16,10 @@ const DocumentSchema = new mongoose.Schema(
     documentName: { type: String, trim: true },
     label: { type: String, trim: true },
     url: { type: String, trim: true },
+    cloudinaryPublicId: { type: String, trim: true },
+    cloudinaryResourceType: { type: String, trim: true },
     mimeType: { type: String, trim: true },
+    size: Number,
     originalName: { type: String, trim: true },
     uploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     uploadedAt: { type: Date, default: Date.now },
@@ -93,7 +96,9 @@ const UserSchema = new mongoose.Schema(
     address: { type: String, trim: true },
 
     profilePhoto: { type: String, trim: true },
+    profilePhotoPublicId: { type: String, trim: true },
     aadhaarCard: { type: String, trim: true },
+    aadhaarCardPublicId: { type: String, trim: true },
 
     emergencyContactNumber: { type: String, trim: true },
     dateOfBirth: Date,
@@ -108,8 +113,12 @@ const UserSchema = new mongoose.Schema(
 
     previousCompanyName: String,
     previousCompanyPayslip: String,
+    previousCompanyPayslipPublicId: { type: String, trim: true },
     experienceLetter: String,
+    experienceLetterPublicId: { type: String, trim: true },
     panCard: String,
+    panCardFile: String,
+    panCardFilePublicId: { type: String, trim: true },
 
     bankDetails: {
       accountHolderName: String,

@@ -24,7 +24,15 @@ const getUserAttendance = asyncHandler(async (req, res) => {
 });
 
 const attendanceReport = asyncHandler(async (req, res) => {
-  const ids = req.query.userId ? [req.query.userId] : await getAccessibleUserIds(req.user);
+  let ids;
+
+  if (req.query.userId) {
+    if (!(await canAccessUser(req.user, req.query.userId))) throw new ApiError(403, 'Access denied');
+    ids = [req.query.userId];
+  } else {
+    ids = await getAccessibleUserIds(req.user);
+  }
+
   const from = req.query.from ? new Date(req.query.from) : startOfDay();
   const to = req.query.to ? new Date(req.query.to) : endOfDay();
   const data = await Attendance.find({ user: { $in: ids }, date: { $gte: startOfDay(from), $lte: endOfDay(to) } }).populate('user', 'name email employeeId role').sort({ date: -1 }).lean();

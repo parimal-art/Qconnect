@@ -1,4 +1,9 @@
 const classes = {
+  'Super Admin': 'bg-violet-50 text-violet-700 ring-violet-200',
+  Admin: 'bg-blue-50 text-blue-700 ring-blue-200',
+  HR: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+  'Team Leader': 'bg-amber-50 text-amber-700 ring-amber-200',
+  Salesperson: 'bg-cyan-50 text-cyan-700 ring-cyan-200',
   Active: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
   Online: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
   Idle: 'bg-amber-50 text-amber-700 ring-amber-200',

@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import {
   Activity,
   Briefcase,
   CheckCircle2,
   Clock,
+  ShieldCheck,
   Users
 } from 'lucide-react';
 import {
@@ -17,7 +18,8 @@ import {
   BarChart,
   Bar,
   XAxis,
-  YAxis
+  YAxis,
+  Legend
 } from 'recharts';
 
 import api from '../../lib/api';
@@ -33,6 +35,7 @@ const msToHours = ms => Math.round(((ms || 0) / 3600000) * 10) / 10;
 
 const roleTitle = {
   employees: 'All Employees',
+  ADMIN: 'Admins',
   HR: 'HR Employees',
   TEAM_LEADER: 'Team Leaders',
   SALESPERSON: 'Salespersons',
@@ -53,9 +56,13 @@ const pipelineStatuses = [
   'Lost'
 ];
 
+const CHART_COLORS = ['#2563eb', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4'];
+
 export default function RoleDashboard({ title, subtitle, showTracker = true }) {
   const { user } = useSelector(state => state.auth);
-  const canGenerateEmployee = [ROLES.ADMIN, ROLES.HR].includes(user?.role);
+  const navigate = useNavigate();
+  const canGenerateEmployee = [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR].includes(user?.role);
+  const isSuperAdmin = user?.role === ROLES.SUPER_ADMIN;
 
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -85,12 +92,7 @@ export default function RoleDashboard({ title, subtitle, showTracker = true }) {
   }));
 
   const attendance = data?.attendanceTotals || {};
-  const totalEmployees = Number(
-    data?.childEmployeeCount ??
-      ((roleCounts.HR || 0) +
-        (roleCounts.TEAM_LEADER || 0) +
-        (roleCounts.SALESPERSON || 0))
-  );
+  const totalEmployees = Number(data?.childEmployeeCount || 0);
 
   const leadTotals = (data?.leadCounts || []).reduce(
     (acc, item) => {
@@ -163,7 +165,10 @@ export default function RoleDashboard({ title, subtitle, showTracker = true }) {
       key: 'parent',
       header: 'Parent',
       render: employee =>
-        employee.assignedTeamLeader?.name || employee.assignedHR?.name || 'Admin'
+        employee.assignedTeamLeader?.name ||
+        employee.assignedHR?.name ||
+        employee.createdBy?.name ||
+        (employee.role === ROLES.ADMIN ? 'Super Admin' : 'Admin')
     },
     {
       key: 'active',
@@ -270,19 +275,32 @@ export default function RoleDashboard({ title, subtitle, showTracker = true }) {
         <TargetSummaryPanel title="My target / team sales summary" compact />
       )}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
         <DashboardCard
           title="Total Employees"
           value={totalEmployees}
           icon={Users}
+          color="blue"
           active={activePanel === 'employees'}
           onClick={() => openPanel('employees')}
         />
+
+        {isSuperAdmin && (
+          <DashboardCard
+            title="Admins"
+            value={roleCounts.ADMIN || 0}
+            icon={ShieldCheck}
+            color="violet"
+            active={activePanel === 'ADMIN'}
+            onClick={() => openPanel('ADMIN')}
+          />
+        )}
 
         <DashboardCard
           title="HR"
           value={roleCounts.HR || 0}
           icon={Users}
+          color="emerald"
           active={activePanel === 'HR'}
           onClick={() => openPanel('HR')}
         />
@@ -291,6 +309,7 @@ export default function RoleDashboard({ title, subtitle, showTracker = true }) {
           title="Team Leaders"
           value={roleCounts.TEAM_LEADER || 0}
           icon={Users}
+          color="amber"
           active={activePanel === 'TEAM_LEADER'}
           onClick={() => openPanel('TEAM_LEADER')}
         />
@@ -299,6 +318,7 @@ export default function RoleDashboard({ title, subtitle, showTracker = true }) {
           title="Salespersons"
           value={roleCounts.SALESPERSON || 0}
           icon={Users}
+          color="cyan"
           active={activePanel === 'SALESPERSON'}
           onClick={() => openPanel('SALESPERSON')}
         />
@@ -307,6 +327,7 @@ export default function RoleDashboard({ title, subtitle, showTracker = true }) {
           title="Total Leads"
           value={leadTotals.total}
           icon={Briefcase}
+          color="rose"
           active={activePanel === 'leads'}
           onClick={() => openPanel('leads')}
         />
@@ -318,7 +339,7 @@ export default function RoleDashboard({ title, subtitle, showTracker = true }) {
             <div>
               <h2 className="text-xl font-bold">{roleTitle[activePanel]}</h2>
               <p className="text-sm text-slate-500">
-                Tap any employee name to open the full profile.
+                Tap any employee name to open the full profile and view all details.
               </p>
             </div>
 
@@ -368,27 +389,35 @@ export default function RoleDashboard({ title, subtitle, showTracker = true }) {
           title="Working-hour Active"
           value={`${msToHours(attendance.totalActive)}h`}
           icon={Activity}
+          color="emerald"
           footer="CRM PWA activity inside assigned shift"
+          onClick={() => navigate('/attendance')}
         />
         <DashboardCard
           title="Idle Time"
           value={`${msToHours(attendance.totalIdle)}h`}
           icon={Clock}
+          color="amber"
+          onClick={() => navigate('/tracker')}
         />
         <DashboardCard
           title="Break Time"
           value={`${msToHours(attendance.totalBreak)}h`}
           icon={Clock}
+          color="violet"
+          onClick={() => navigate('/break-leave')}
         />
         <DashboardCard
           title="Best Salesperson"
           value={data?.bestSalesperson?.name || '—'}
           icon={CheckCircle2}
+          color="blue"
           footer={
             data?.bestSalesperson
               ? `${data.bestSalesperson.completed} completed leads`
               : 'No completed lead yet'
           }
+          onClick={data?.bestSalesperson?._id ? () => navigate(`/employees/${data.bestSalesperson._id}`) : undefined}
         />
       </div>
 
@@ -398,11 +427,12 @@ export default function RoleDashboard({ title, subtitle, showTracker = true }) {
           <ResponsiveContainer width="100%" height="85%">
             <PieChart>
               <Pie data={stateData} dataKey="value" nameKey="name" outerRadius={95} label>
-                {stateData.map((_, i) => (
-                  <Cell key={i} />
+                {stateData.map((entry, i) => (
+                  <Cell key={entry.name} fill={CHART_COLORS[i % CHART_COLORS.length]} />
                 ))}
               </Pie>
               <Tooltip />
+              <Legend />
             </PieChart>
           </ResponsiveContainer>
         </div>
@@ -424,10 +454,11 @@ export default function RoleDashboard({ title, subtitle, showTracker = true }) {
               <XAxis dataKey="name" />
               <YAxis />
               <Tooltip />
-              <Bar dataKey="total" />
-              <Bar dataKey="completed" />
-              <Bar dataKey="won" />
-              <Bar dataKey="lost" />
+              <Legend />
+              <Bar dataKey="total" fill={CHART_COLORS[0]} />
+              <Bar dataKey="completed" fill={CHART_COLORS[1]} />
+              <Bar dataKey="won" fill={CHART_COLORS[2]} />
+              <Bar dataKey="lost" fill={CHART_COLORS[4]} />
             </BarChart>
           </ResponsiveContainer>
         </div>

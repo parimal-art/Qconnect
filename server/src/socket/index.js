@@ -25,7 +25,7 @@ const registerSocket = io => {
   io.on('connection', socket => {
     const user = socket.user;
     socket.join(`user:${String(user._id)}`);
-    if (user.role === ROLES.ADMIN) socket.join('admins');
+    if ([ROLES.SUPER_ADMIN, ROLES.ADMIN].includes(user.role)) socket.join('admins');
     if (user.assignedHR) socket.join(`user:${String(user.assignedHR)}`);
     if (user.assignedTeamLeader) socket.join(`user:${String(user.assignedTeamLeader)}`);
 

@@ -12,7 +12,8 @@ import {
   Bell,
   UserCircle,
   Target,
-  FileText
+  FileText,
+  ShieldCheck
 } from 'lucide-react';
 import { logout } from '../store/authSlice';
 import { ROLES, roleLabel } from '../lib/roles';
@@ -20,19 +21,22 @@ import NotificationBell from './NotificationBell';
 import PwaInstallButton from './PwaInstallButton';
 import { useActivityTracker } from '../hooks/useActivityTracker';
 
+const adminLikeNav = dashboardPath => [
+  ['Dashboard', dashboardPath, dashboardPath === '/super-admin' ? ShieldCheck : Home],
+  ['Tracker', '/tracker', Clock],
+  ['Employees', '/employees', Users],
+  ['Create Employee', '/employees/new', Users],
+  ['Leads', '/leads', Briefcase],
+  ['Attendance', '/attendance', CalendarCheck],
+  ['Reports', '/reports', BarChart3],
+  ['Targets', '/targets', Target],
+  ['Quotations', '/quotations', FileText],
+  ['Notifications', '/notifications', Bell]
+];
+
 const navByRole = {
-  [ROLES.ADMIN]: [
-    ['Dashboard', '/admin', Home],
-    ['Tracker', '/tracker', Clock],
-    ['Employees', '/employees', Users],
-    ['Create Employee', '/employees/new', Users],
-    ['Leads', '/leads', Briefcase],
-    ['Attendance', '/attendance', CalendarCheck],
-    ['Reports', '/reports', BarChart3],
-    ['Targets', '/targets', Target],
-    ['Quotations', '/quotations', FileText],
-    ['Notifications', '/notifications', Bell]
-  ],
+  [ROLES.SUPER_ADMIN]: adminLikeNav('/super-admin'),
+  [ROLES.ADMIN]: adminLikeNav('/admin'),
   [ROLES.HR]: [
     ['Dashboard', '/hr', Home],
     ['Tracker', '/tracker', Clock],

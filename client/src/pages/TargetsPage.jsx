@@ -21,7 +21,7 @@ export default function TargetsPage() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
-  const canAssign = [ROLES.ADMIN, ROLES.HR, ROLES.TEAM_LEADER].includes(user?.role);
+  const canAssign = [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR, ROLES.TEAM_LEADER].includes(user?.role);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -45,7 +45,8 @@ export default function TargetsPage() {
   }, [load]);
 
   const assignableEmployees = useMemo(() => {
-    if (user?.role === ROLES.ADMIN) return employees.filter(employee => employee.role !== ROLES.ADMIN);
+    if (user?.role === ROLES.SUPER_ADMIN) return employees.filter(employee => ![ROLES.SUPER_ADMIN, ROLES.ADMIN].includes(employee.role));
+    if (user?.role === ROLES.ADMIN) return employees.filter(employee => ![ROLES.SUPER_ADMIN, ROLES.ADMIN].includes(employee.role));
     if (user?.role === ROLES.HR) return employees.filter(employee => employee.role === ROLES.TEAM_LEADER);
     if (user?.role === ROLES.TEAM_LEADER) return employees.filter(employee => employee.role === ROLES.SALESPERSON);
     return [];
@@ -105,7 +106,7 @@ export default function TargetsPage() {
       {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-700">{error}</div>}
       {message && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-medium text-emerald-700">{message}</div>}
 
-      <TargetSummaryPanel title="My target performance" />
+      {user?.role !== ROLES.SUPER_ADMIN && <TargetSummaryPanel title="My target performance" />}
 
       {canAssign && (
         <form onSubmit={assign} className="card space-y-4">

@@ -152,7 +152,7 @@ export default function LeadsPage() {
   const [error, setError] = useState('');
 
   const isSalesperson = user?.role === ROLES.SALESPERSON;
-  const isManagerRole = [ROLES.ADMIN, ROLES.HR, ROLES.TEAM_LEADER].includes(user?.role);
+  const isManagerRole = [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR, ROLES.TEAM_LEADER].includes(user?.role);
 
   const salespersons = useMemo(
     () => employees.filter(employee => employee.role === ROLES.SALESPERSON),

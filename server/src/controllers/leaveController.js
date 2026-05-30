@@ -8,7 +8,7 @@ const { notifyUser } = require('../services/notificationService');
 
 const requestLeave = asyncHandler(async (req, res) => {
   const leave = await Leave.create({ user: req.user._id, ...req.body, status: 'Pending' });
-  const managers = await User.find({ $or: [{ role: ROLES.ADMIN }, { _id: req.user.assignedHR }, { _id: req.user.assignedTeamLeader }] }).select('_id');
+  const managers = await User.find({ $or: [{ role: { $in: [ROLES.SUPER_ADMIN, ROLES.ADMIN] } }, { _id: req.user.assignedHR }, { _id: req.user.assignedTeamLeader }] }).select('_id');
   await Promise.all(managers.map(m => notifyUser({ user: m._id, title: 'Leave request submitted', message: `${req.user.name || req.user.email} submitted a leave request`, type: 'leave_request', metadata: { leaveId: leave._id } })));
   res.status(201).json({ success: true, leave });
 });
@@ -20,7 +20,7 @@ const list = asyncHandler(async (req, res) => {
 });
 
 const approve = asyncHandler(async (req, res) => {
-  if (![ROLES.ADMIN, ROLES.HR].includes(req.user.role)) throw new ApiError(403, 'Only Admin/HR can approve leave');
+  if (![ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR].includes(req.user.role)) throw new ApiError(403, 'Only Super Admin/Admin/HR can approve leave');
   const leave = await Leave.findById(req.params.id);
   if (!leave) throw new ApiError(404, 'Leave not found');
   if (!(await canAccessUser(req.user, leave.user))) throw new ApiError(403, 'Access denied');
@@ -33,7 +33,7 @@ const approve = asyncHandler(async (req, res) => {
 });
 
 const reject = asyncHandler(async (req, res) => {
-  if (![ROLES.ADMIN, ROLES.HR].includes(req.user.role)) throw new ApiError(403, 'Only Admin/HR can reject leave');
+  if (![ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR].includes(req.user.role)) throw new ApiError(403, 'Only Super Admin/Admin/HR can reject leave');
   const leave = await Leave.findById(req.params.id);
   if (!leave) throw new ApiError(404, 'Leave not found');
   if (!(await canAccessUser(req.user, leave.user))) throw new ApiError(403, 'Access denied');

@@ -127,9 +127,10 @@ const parseJsonArray = value => {
 const getProfileReviewerIds = async employee => {
   const reviewerIds = [];
 
-  const admins = await User.find({ role: ROLES.ADMIN, isActive: true }).select('_id').lean();
-  reviewerIds.push(...admins.map(admin => admin._id));
+  const superAdmins = await User.find({ role: ROLES.SUPER_ADMIN, isActive: true }).select('_id').lean();
+  reviewerIds.push(...superAdmins.map(admin => admin._id));
 
+  if (employee.assignedTeamLeader) reviewerIds.push(employee.assignedTeamLeader);
   if (employee.assignedHR) reviewerIds.push(employee.assignedHR);
   if (employee.createdBy) reviewerIds.push(employee.createdBy);
 
@@ -275,12 +276,21 @@ const createUser = asyncHandler(async (req, res) => {
 
 const getUsers = asyncHandler(async (req, res) => {
   const includeInactive =
-    [ROLES.ADMIN, ROLES.HR].includes(req.user.role) || req.query.status === 'all';
+    [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR].includes(req.user.role) || req.query.status === 'all';
 
-  const query = buildChildQuery(req.user, { includeInactive });
+  const ids = await getAccessibleUserIds(req.user, {
+    includeInactive,
+    includeSelf: false
+  });
 
-  if (req.user.role === ROLES.ADMIN && !req.query.role) {
-    query.role = { $ne: ROLES.ADMIN };
+  const query = { _id: { $in: ids } };
+
+  if (req.user.role !== ROLES.SUPER_ADMIN) {
+    query.role = { $ne: ROLES.SUPER_ADMIN };
+  }
+
+  if (req.user.role === ROLES.ADMIN) {
+    query.role = { $in: [ROLES.HR, ROLES.TEAM_LEADER, ROLES.SALESPERSON] };
   }
 
   if (req.query.role && req.query.role !== 'all') {
@@ -310,36 +320,43 @@ const getUsers = asyncHandler(async (req, res) => {
   const users = await User.find(query)
     .populate('assignedHR', 'name email employeeId hrUniqueId')
     .populate('assignedTeamLeader', 'name email employeeId teamLeaderUniqueId')
-    .sort({ isActive: -1, updatedAt: -1, createdAt: -1 });
+    .populate('createdBy', 'name email employeeId role')
+    .sort({ isActive: -1, role: 1, updatedAt: -1, createdAt: -1 });
 
   res.json({ success: true, users });
 });
 
 const getChildren = asyncHandler(async (req, res) => {
-  const query = buildChildQuery(req.user);
-  if (req.user.role === ROLES.ADMIN) query.role = { $ne: ROLES.ADMIN };
+  const ids = await getAccessibleUserIds(req.user, { includeSelf: false });
+  const query = { _id: { $in: ids }, isActive: true };
+
+  if (req.user.role !== ROLES.SUPER_ADMIN) {
+    query.role = { $ne: ROLES.SUPER_ADMIN };
+  }
 
   const users = await User.find(query)
     .populate('assignedHR', 'name email employeeId')
     .populate('assignedTeamLeader', 'name email employeeId')
+    .populate('createdBy', 'name email employeeId role')
     .sort({ role: 1, name: 1 });
 
   res.json({ success: true, users });
 });
 
 const trackingForChildren = asyncHandler(async (req, res) => {
-  const ids = await getAccessibleUserIds(req.user);
+  const ids = await getAccessibleUserIds(req.user, { includeSelf: false });
   const today = { $gte: startOfDay(), $lte: endOfDay() };
 
   const userFilter = {
-    _id: req.user.role === ROLES.ADMIN ? { $in: ids } : { $in: ids, $ne: req.user._id },
+    _id: { $in: ids },
     isActive: true,
-    ...(req.user.role === ROLES.ADMIN ? { role: { $ne: ROLES.ADMIN } } : {})
+    ...(req.user.role !== ROLES.SUPER_ADMIN ? { role: { $ne: ROLES.SUPER_ADMIN } } : {})
   };
 
   const users = await User.find(userFilter)
     .populate('assignedHR', 'name email employeeId')
     .populate('assignedTeamLeader', 'name email employeeId')
+    .populate('createdBy', 'name email employeeId role')
     .lean();
 
   const attendances = await Attendance.find({
@@ -400,7 +417,7 @@ const trackingForChildren = asyncHandler(async (req, res) => {
       employeeName: user.name || user.email,
       employeeId: user.employeeId,
       role: user.role,
-      assignedParentName: user.assignedTeamLeader?.name || user.assignedHR?.name || 'Admin',
+      assignedParentName: user.assignedTeamLeader?.name || user.assignedHR?.name || user.createdBy?.name || (user.role === ROLES.ADMIN ? 'Super Admin' : 'Admin'),
       onlineStatus: user.onlineStatus,
       currentActivityState: user.currentActivityState,
       verificationStatus: user.verificationStatus,
@@ -454,6 +471,7 @@ const getUserById = asyncHandler(async (req, res) => {
   const user = await User.findById(req.params.id)
     .populate('assignedHR', 'name email employeeId')
     .populate('assignedTeamLeader', 'name email employeeId')
+    .populate('createdBy', 'name email employeeId role')
     .populate('verifiedBy', 'name email employeeId')
     .populate('documents.uploadedBy', 'name email employeeId')
     .populate('documents.reviewedBy', 'name email employeeId');
@@ -494,7 +512,7 @@ const updateUser = asyncHandler(async (req, res) => {
 });
 
 const deleteUser = asyncHandler(async (req, res) => {
-  if (req.user.role !== ROLES.ADMIN && req.user.role !== ROLES.HR) {
+  if (![ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR].includes(req.user.role)) {
     throw new ApiError(403, 'Access denied');
   }
 
@@ -529,7 +547,7 @@ const deleteUser = asyncHandler(async (req, res) => {
 });
 
 const setUserActiveStatus = asyncHandler(async (req, res) => {
-  if (req.user.role !== ROLES.ADMIN && req.user.role !== ROLES.HR) {
+  if (![ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR].includes(req.user.role)) {
     throw new ApiError(403, 'Access denied');
   }
 
@@ -580,8 +598,8 @@ const setUserActiveStatus = asyncHandler(async (req, res) => {
 });
 
 const verifyUser = asyncHandler(async (req, res) => {
-  if (![ROLES.ADMIN, ROLES.HR].includes(req.user.role)) {
-    throw new ApiError(403, 'Only Admin/HR can verify profiles');
+  if (![ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR].includes(req.user.role)) {
+    throw new ApiError(403, 'Only Super Admin/Admin/HR can verify profiles');
   }
 
   if (!(await canAccessUser(req.user, req.params.id))) {
